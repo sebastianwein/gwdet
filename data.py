@@ -1,28 +1,63 @@
+import numpy as np
+import h5py
 from pytorch_lightning import LightningDataModule
+import torch
 from torch import nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
 
 
-def Dataset(Dataset):
-    def __init__(self):
-        pass
-    
+class GGWDDataset(Dataset):
+    def __init__(self, file_path):
+        file = h5py.File(file_path, "r")
+        self.injection_e1 = file["injection_samples"]["e1_strain"]
+        self.injection_e2 = file["injection_samples"]["e2_strain"]
+        self.injection_e3 = file["injection_samples"]["e3_strain"]
+        self.noise_e1 = file["noise_samples"]["e1_strain"]
+        self.noise_e2 = file["noise_samples"]["e2_strain"]
+        self.noise_e3 = file["noise_samples"]["e3_strain"]
+        self.sample_shape = (3, self.injection_e1.shape[1])
+
     def __len__(self):
-        pass
+        return len(self.injection_e1) + len(self.noise_e1)
 
     def __getitem__(self, idx):
-        pass
+        if idx < len(self.injection_e1): 
+            sample = torch.as_tensor(np.array([self.injection_e1[idx], 
+                                               self.injection_e2[idx], 
+                                               self.injection_e3[idx]]))
+            target = torch.as_tensor([1.])
+        else:
+            idx -= len(self.injection_e1)
+            sample = torch.as_tensor(np.array([self.noise_e1[idx], 
+                                               self.noise_e2[idx], 
+                                               self.noise_e3[idx]]))
+            target = torch.as_tensor([0.])
+        return sample, target
 
 
 class Data(LightningDataModule):
-    def __init__(self, batch_size):
+    def __init__(self, file_path, batch_size, num_workers):
         super().__init__()
+        dataset = GGWDDataset(file_path)
+        self.sample_shape = dataset.sample_shape
+        self.train_dataset, self.val_dataset \
+            = random_split(dataset, (0.8, 0.2))
         self.batch_size = batch_size
+        self.num_workers = num_workers
 
-    def train_dataloader():
-        dataset = Dataset()
-        return DataLoader(dataset, batch_size=self.batch_size)
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, 
+                          batch_size=self.batch_size, 
+                          shuffle=True, 
+                          num_workers=self.num_workers)
     
-    def val_dataloader():
-        dataset = Dataset()
-        return DataLoader(dataset, batch_size=self.batch_size)
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, 
+                          batch_size=self.batch_size, 
+                          shuffle=False, 
+                          num_workers=self.num_workers)
+
+
+if __name__ == "__main__":
+    data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", 64)
+    print(data.train_dataset[0])

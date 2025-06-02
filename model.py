@@ -1,29 +1,48 @@
 from pytorch_lightning import LightningModule
+from pytorch_lightning.utilities.model_summary import summarize
 import torch
 from torch import nn as nn
 
 
-class Model(LightningModule):
-    def __init__(self, input_size=128, learning_rate=0.02):
+class Conv1dModel(LightningModule):
+    def __init__(self, learning_rate):
         super().__init__()
-        self.input_size = input_size
         self.learning_rate = learning_rate
         self.loss_fn = nn.BCELoss()
-        self.seq = nn.Sequential(
-            nn.Linear(input_size, 64),
-            nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(), 
-            nn.Linear(32, 16),
-            nn.Sigmoid()
-        )
+
+        self.relu = nn.ReLU()
+        self.sigm = nn.Sigmoid()
+
+        self.conv1 = nn.Conv2d(1, 16, (1, 16), padding="same")
+        self.max_pool1 = nn.MaxPool2d((1, 4))
+        self.conv2 = nn.Conv2d(16, 32, (1, 8), padding="same")
+        self.max_pool2 = nn.MaxPool2d((1, 4))
+        self.conv3 = nn.Conv2d(32, 64, (1, 8), padding="same")
+        self.max_pool3 = nn.MaxPool2d((1, 4))
+        self.fc1 = nn.LazyLinear(64)
+        self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
-        x = self.seq(x)
+        x = torch.unflatten(x, 0, (-1, 1))
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.max_pool1(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.max_pool2(x)
+        x = self.conv3(x)
+        x = self.relu(x)
+        x = self.max_pool3(x)
+        # ReLU stack
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.sigm(x)
         return x
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
     def training_step(self, batch, batch_idx):
@@ -38,3 +57,7 @@ class Model(LightningModule):
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
         self.log("val_loss", loss)
+
+
+if __name__ == "__main__":
+    model = Conv1dModel(learning_rate=0.01)

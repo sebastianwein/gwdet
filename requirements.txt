@@ -1,0 +1,6 @@
+h5py
+importlib-metadata
+numpy
+pytorch_lightning
+torch
+torchinfo
