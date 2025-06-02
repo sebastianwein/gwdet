@@ -1,5 +1,6 @@
 h5py
 importlib-metadata
+matplotlib
 numpy
 pytorch_lightning
 torch

@@ -1,23 +1,30 @@
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities.model_summary import summarize
 import torch
-from torch import nn as nn
+from torchmetrics.classification import BinaryAccuracy 
+import torch.nn as nn
 
 
 class Conv1dModel(LightningModule):
     def __init__(self, learning_rate):
         super().__init__()
         self.learning_rate = learning_rate
+        self.save_hyperparameters()
+
         self.loss_fn = nn.BCELoss()
+        self.accuracy = BinaryAccuracy()
 
         self.relu = nn.ReLU()
         self.sigm = nn.Sigmoid()
 
         self.conv1 = nn.Conv2d(1, 16, (1, 16), padding="same")
+        # self.bn1 = nn.BatchNorm1d(16)
         self.max_pool1 = nn.MaxPool2d((1, 4))
         self.conv2 = nn.Conv2d(16, 32, (1, 8), padding="same")
+        # self.bn2 = nn.BatchNorm1d(32)
         self.max_pool2 = nn.MaxPool2d((1, 4))
         self.conv3 = nn.Conv2d(32, 64, (1, 8), padding="same")
+        # self.bn3 = nn.BatchNorm1d(64)
         self.max_pool3 = nn.MaxPool2d((1, 4))
         self.fc1 = nn.LazyLinear(64)
         self.fc2 = nn.Linear(64, 1)
@@ -50,6 +57,8 @@ class Conv1dModel(LightningModule):
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
         self.log("train_loss", loss)
+        acc = self.accuracy(y_pred, y)
+        self.log("train_acc", acc)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -57,6 +66,8 @@ class Conv1dModel(LightningModule):
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
         self.log("val_loss", loss)
+        acc = self.accuracy(y_pred, y)
+        self.log("val_acc", acc)
 
 
 if __name__ == "__main__":

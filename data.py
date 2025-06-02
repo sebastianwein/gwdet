@@ -24,13 +24,13 @@ class GGWDDataset(Dataset):
         if idx < len(self.injection_e1): 
             sample = torch.as_tensor(np.array([self.injection_e1[idx], 
                                                self.injection_e2[idx], 
-                                               self.injection_e3[idx]]))
+                                               self.injection_e3[idx]]))*1e+23
             target = torch.as_tensor([1.])
         else:
             idx -= len(self.injection_e1)
             sample = torch.as_tensor(np.array([self.noise_e1[idx], 
                                                self.noise_e2[idx], 
-                                               self.noise_e3[idx]]))
+                                               self.noise_e3[idx]]))*1e+23
             target = torch.as_tensor([0.])
         return sample, target
 
