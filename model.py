@@ -59,18 +59,18 @@ class Conv1dModel(LightningModule):
         x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
-        self.log("train_loss", loss)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         acc = self.accuracy(y_pred, y)
-        self.log("train_acc", acc)
+        self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
-        self.log("val_loss", loss)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False, logger=True)
         acc = self.accuracy(y_pred, y)
-        self.log("val_acc", acc)
+        self.log("val_acc", acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
     def on_test_start(self):
         self.test_step_output \
@@ -130,7 +130,3 @@ class Conv1dModel(LightningModule):
         ax.set_ylabel("True positive rate")
         fig.savefig("roc.png")
         
-
-
-if __name__ == "__main__":
-    model = Conv1dModel(learning_rate=0.01)
