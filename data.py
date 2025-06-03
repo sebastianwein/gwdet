@@ -3,7 +3,7 @@ import h5py
 from pytorch_lightning import LightningDataModule
 import torch
 from torch import nn as nn
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 
 
 class GGWDDataset(Dataset):
@@ -42,6 +42,7 @@ class Data(LightningDataModule):
         self.sample_shape = dataset.sample_shape
         self.train_dataset, self.val_dataset \
             = random_split(dataset, (0.8, 0.2))
+        self.test_dataset = self.val_dataset # Subset(self.val_dataset, range(512))
         self.batch_size = batch_size
         self.num_workers = num_workers
 
@@ -53,6 +54,12 @@ class Data(LightningDataModule):
     
     def val_dataloader(self):
         return DataLoader(self.val_dataset, 
+                          batch_size=self.batch_size, 
+                          shuffle=False, 
+                          num_workers=self.num_workers)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, 
                           batch_size=self.batch_size, 
                           shuffle=False, 
                           num_workers=self.num_workers)

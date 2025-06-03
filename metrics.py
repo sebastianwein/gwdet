@@ -2,6 +2,7 @@ from data import Data
 import matplotlib.pyplot as plt
 from model import Conv1dModel
 import numpy as np
+from pytorch_lightning import Trainer
 
 
 metrics_path = "/home/s/swein/gwdet/main/lightning_logs/version_4/metrics.csv"
@@ -35,4 +36,5 @@ batch_size = 64
 data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", batch_size=batch_size, num_workers=4)
 checkpoint_path = "/home/s/swein/gwdet/main/lightning_logs/version_4/checkpoints/epoch=19-step=4100.ckpt"
 model = Conv1dModel.load_from_checkpoint(checkpoint_path)
-
+trainer = Trainer(logger=False)
+trainer.test(model, datamodule=data)
