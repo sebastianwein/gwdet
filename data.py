@@ -15,6 +15,7 @@ class GGWDDataset(Dataset):
         self.noise_e1 = file["noise_samples"]["e1_strain"]
         self.noise_e2 = file["noise_samples"]["e2_strain"]
         self.noise_e3 = file["noise_samples"]["e3_strain"]
+        self.injection_snr = file["injection_parameters"]["injection_snr"]
         self.sample_shape = (3, self.injection_e1.shape[1])
 
     def __len__(self):
@@ -22,17 +23,19 @@ class GGWDDataset(Dataset):
 
     def __getitem__(self, idx):
         if idx < len(self.injection_e1): 
-            sample = torch.as_tensor(np.array([self.injection_e1[idx], 
-                                               self.injection_e2[idx], 
-                                               self.injection_e3[idx]]))*1e+23
-            target = torch.as_tensor([1.])
+            sample = np.array([self.injection_e1[idx], 
+                               self.injection_e2[idx], 
+                               self.injection_e3[idx]])*1e+23
+            target = np.array([1.])
+            parameters = {"injection_snr": self.injection_snr[idx]}
         else:
             idx -= len(self.injection_e1)
-            sample = torch.as_tensor(np.array([self.noise_e1[idx], 
-                                               self.noise_e2[idx], 
-                                               self.noise_e3[idx]]))*1e+23
-            target = torch.as_tensor([0.])
-        return sample, target
+            sample = np.array([self.noise_e1[idx], 
+                               self.noise_e2[idx], 
+                               self.noise_e3[idx]])*1e+23
+            target = np.array([0.])
+            parameters = {"injection_snr": np.nan}
+        return sample, target, parameters
 
 
 class Data(LightningDataModule):
