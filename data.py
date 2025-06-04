@@ -40,9 +40,9 @@ class Data(LightningDataModule):
         super().__init__()
         dataset = GGWDDataset(file_path)
         self.sample_shape = dataset.sample_shape
-        generator = torch.Generator().manual_seed(42)
+        self.generator = torch.Generator().manual_seed(42)
         self.train_dataset, self.val_dataset \
-            = random_split(dataset, (0.8, 0.2), generator=generator)
+            = random_split(dataset, (0.8, 0.2), generator=self.generator)
         self.test_dataset = self.val_dataset # Subset(self.val_dataset, range(512))
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -51,6 +51,7 @@ class Data(LightningDataModule):
         return DataLoader(self.train_dataset, 
                           batch_size=self.batch_size, 
                           shuffle=True, 
+                          generator=self.generator,
                           num_workers=self.num_workers)
     
     def val_dataloader(self):

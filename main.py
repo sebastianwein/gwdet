@@ -12,7 +12,7 @@ def main():
     input_size = np.prod(data.sample_shape)
     model = Conv1dModel(learning_rate=0.0005)
     summary(model, input_size=(batch_size, *data.sample_shape))
-    trainer = Trainer(max_epochs=2)
+    trainer = Trainer(max_epochs=10)
     trainer.fit(model, data)
 
 

@@ -5,9 +5,10 @@ import numpy as np
 from pytorch_lightning import Trainer
 
 
-metrics_path = "/home/s/swein/gwdet/main/lightning_logs/version_4/metrics.csv"
+metrics_path = "/home/s/swein/gwdet/main/lightning_logs/version_14/metrics.csv"
 conv = lambda x: float(x) if x!="" else None
-epoch, step, train_acc, train_loss, val_acc, val_loss \
+epoch, step, train_acc_epoch, train_acc_step, train_loss_epoch, \
+    train_loss_step, val_acc, val_loss \
     = np.loadtxt(metrics_path, delimiter=",", skiprows=1, converters=conv, 
                  unpack=True)
 
@@ -17,24 +18,24 @@ def plot_ignore_nan(ax, x, y, *args, **kwargs):
 
 # Learning curve
 fig, ax = plt.subplots()
-plot_ignore_nan(ax, step, train_loss)
-ax.set_xlabel("Epoch")
+plot_ignore_nan(ax, step, train_loss_step)
+ax.set_xlabel("Step")
 ax.set_ylabel("Loss")
 fig.suptitle("Learning curve")
 fig.savefig("learning_curve.png")
 
 # Accuracy
 fig, ax = plt.subplots()
-plot_ignore_nan(ax, step, train_acc, label="Train data")
+plot_ignore_nan(ax, step, train_acc_step, label="Train data")
 plot_ignore_nan(ax, step, val_acc, label="Train data")
-ax.set_xlabel("Epoch")
+ax.set_xlabel("Step")
 ax.set_ylabel("Accuracy")
 ax.legend(frameon=False)
 fig.savefig("accuracy.png")
 
 batch_size = 64
 data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", batch_size=batch_size, num_workers=4)
-checkpoint_path = "/home/s/swein/gwdet/main/lightning_logs/version_4/checkpoints/epoch=19-step=4100.ckpt"
+checkpoint_path = "/home/s/swein/gwdet/main/lightning_logs/version_14/checkpoints/epoch=19-step=4100.ckpt"
 model = Conv1dModel.load_from_checkpoint(checkpoint_path)
 trainer = Trainer(logger=False)
 trainer.test(model, datamodule=data)
