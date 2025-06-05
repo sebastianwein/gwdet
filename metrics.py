@@ -5,7 +5,7 @@ import numpy as np
 from pytorch_lightning import Trainer
 
 
-metrics_path = "/home/s/swein/gwdet/main/lightning_logs/version_14/metrics.csv"
+metrics_path = "/home/s/swein/gwdet/main/lightning_logs/version_35/metrics.csv"
 conv = lambda x: float(x) if x!="" else None
 epoch, step, train_acc_epoch, train_acc_step, train_loss_epoch, \
     train_loss_step, val_acc, val_loss \
@@ -49,7 +49,7 @@ fig.savefig("accuracy.png")
 
 batch_size = 64
 data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", batch_size=batch_size, num_workers=4)
-checkpoint_path = "/home/s/swein/gwdet/main/lightning_logs/version_14/checkpoints/epoch=19-step=4100.ckpt"
+checkpoint_path = "/home/s/swein/gwdet/main/lightning_logs/version_35/checkpoints/epoch=19-step=4100.ckpt"
 model = Conv1dModel.load_from_checkpoint(checkpoint_path)
 trainer = Trainer(logger=False)
 trainer.test(model, datamodule=data)

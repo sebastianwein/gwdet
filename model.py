@@ -15,7 +15,8 @@ class Conv1dModel(LightningModule):
 
         self.loss_fn = nn.BCELoss()
         self.accuracy = BinaryAccuracy()
-        self.conf_mat = lambda threshold: BinaryConfusionMatrix(threshold)
+        self.conf_mat = lambda threshold: \
+        BinaryConfusionMatrix(threshold).to(self.device)
 
         self.relu = nn.ReLU()
         self.sigm = nn.Sigmoid()
@@ -56,84 +57,53 @@ class Conv1dModel(LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx):
-        x, y, _ = batch
+        x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, 
-                 logger=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, 
+                 prog_bar=True, logger=True)
         acc = self.accuracy(y_pred, y)
         self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True,
                  logger=True) 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y, _ = batch
+        x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False, 
-                 logger=True)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, 
+                 prog_bar=False, logger=True)
         acc = self.accuracy(y_pred, y)
         self.log("val_acc", acc, on_step=False, on_epoch=True, prog_bar=True, 
                  logger=True)
 
-    def on_test_start(self):
-        # batches = self.trainer.num_test_batches[0]
-        self.test_step_output \
-        = {"confusion_matrix": np.empty(4),
-            "roc": np.empty((1000, 5)),
-            "snr_acc": np.empty((10, 3))}
-
     def test_step(self, batch, batch_idx):
         x, y, parameters = batch
         y_pred = self(x)
-
-        threshold = 0.5
-        mat = self.conf_mat(threshold)(y_pred, y)
-        tn = mat[0][0].item() 
-        fp = mat[0][1].item() 
-        fn = mat[1][0].item() 
-        tp = mat[1][1].item()
-        if batch_idx == 0: 
-            self.test_step_output["conf_mat"] = np.array([tn, fp, fn, tp])
+        if batch_idx == 0:
+            self.test_samples = x
+            self.test_labels = y
+            self.test_predictions = y_pred
+            self.test_parameters = parameters
         else: 
-            self.test_step_output["conf_mat"] += np.array([tn, fp, fn, tp])
+            self.test_samples = torch.cat((self.test_samples, x))
+            self.test_labels = torch.cat((self.test_labels, y))
+            self.test_predictions = torch.cat((self.test_predictions, y_pred))
+            for key in self.test_parameters.keys():
+                self.test_parameters[key] \
+                = torch.cat((self.test_parameters[key], parameters[key]))
 
-        # Vary threshold for ROC
-        for i, threshold in enumerate(np.linspace(0, 1, 1000)):
-            mat = self.conf_mat(threshold)(y_pred, y)
-            tn = mat[0][0].item() 
-            fp = mat[0][1].item() 
-            fn = mat[1][0].item() 
-            tp = mat[1][1].item()
-            if batch_idx == 0: 
-                self.test_step_output["roc"][i] \
-                = np.array([threshold, tn, fp, fn, tp])
-            else: 
-                self.test_step_output["roc"][i][1:] += np.array([tn, fp, fn, tp])
-
-        threshold = 0.5
-        injection_snr = parameters["injection_snr"].numpy()
-        n = 10
-        min_snr, max_snr = 5, 20
-        delta_snr = (max_snr-min_snr)/n
-        for i in range(n):
-            snr = min_snr + i*delta_snr
-            if i==0: mask = injection_snr < snr+delta_snr
-            elif i==n-1: mask = snr <= injection_snr
-            else: mask = np.logical_and(snr <= injection_snr,
-                                        injection_snr < snr+delta_snr)
-            tp = (y_pred[mask]>=threshold).sum()
-            fn = (y_pred[mask]<threshold).sum()
-            if batch_idx == 0: 
-                self.test_step_output["snr_acc"][i] = np.array([snr, fn, tp])
-            else: 
-                self.test_step_output["snr_acc"][i][1:] += np.array([fn, tp])
-
-    def on_test_end(self): 
+    def on_test_end(self):
+        x = self.test_samples
+        y = self.test_labels
+        y_pred = self.test_predictions
+        parameters = self.test_parameters
 
         # Confusion matrix
-        tn, fp, fn, tp = self.test_step_output["conf_mat"]
-        mat = np.array([[tn, fp], [fn, tp]]) / (tn +fp+fn+tp)
+        threshold = 0.5
+        mat = self.conf_mat(threshold)(y_pred, y)
+        mat = mat.cpu().numpy()
+        mat = mat / np.sum(mat)
         label = np.array([["TN", "FP"], ["FN", "TP"]])
         fig, ax = plt.subplots()
         ax.pcolormesh(mat, vmin=0, vmax=1)
@@ -152,9 +122,15 @@ class Conv1dModel(LightningModule):
         fig.savefig("conf_mat.png")
 
         # ROC
-        _, tn, fp, fn, tp = self.test_step_output["roc"].T
-        tpr = tp / (tp + fn)
-        fpr = fp / (fp + tn)
+        n = 1000
+        tpr, fpr = np.empty(n), np.empty(n)
+        for i, threshold in enumerate(np.linspace(0, 1, n)):
+            mat = self.conf_mat(threshold)(y_pred, y)
+            mat = mat.cpu().numpy()
+            mat = mat / np.sum(mat)
+            (tn, fp), (fn, tp) = mat
+            tpr[i] = tp / (tp + fn)
+            fpr[i] = fp / (fp + tn)
         auc = np.trapz(tpr[::-1], x=fpr[::-1])
         fig, ax = plt.subplots()
         ax.plot(fpr, tpr)
@@ -164,13 +140,26 @@ class Conv1dModel(LightningModule):
         ax.set_ylabel("True positive rate")
         fig.savefig("roc.png")
 
-        # Accuracy vs snr
-        snr, fn, tp = self.test_step_output["snr_acc"].T
-        acc = tp / (fn + tp)
-        width = snr[1] - snr[0]
+        # Accuracy vs SNR
+        injection_snr = parameters["injection_snr"].cpu().numpy()
+        n = 10
+        acc = np.empty(n)
+        min_snr, max_snr = 5, 20
+        snr = np.linspace(min_snr, max_snr, n, endpoint=False)
+        delta_snr = (max_snr - min_snr) / n
+
+        threshold = 0.5
+        for i, r in enumerate(snr):
+            if i==0: mask = injection_snr < r+delta_snr
+            elif i==n-1: mask = r <= injection_snr
+            else: mask = np.logical_and(r <= injection_snr,
+                                        injection_snr < r+delta_snr)
+            acc[i] = self.accuracy(y_pred[mask], y[mask]) \
+                     if np.sum(mask)>0 else np.nan
+
         fig, ax = plt.subplots()
-        ax.bar(snr, acc, width=width, align="edge", edgecolor="k")
-        ax.set_xlim(np.min(snr), np.max(snr)+width)
+        ax.bar(snr, acc, width=delta_snr, align="edge", edgecolor="k")
+        ax.set_xlim(min_snr, max_snr)
         ax.set_xlabel("SNR")
         ax.set_ylabel("Accuracy")
         fig.savefig("snr_acc.png")
