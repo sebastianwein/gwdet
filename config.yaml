@@ -1,0 +1,17 @@
+seed_everything: 42
+
+trainer:
+  max_epochs: 10
+  callbacks: 
+    - class_path: callbacks.ConfusionMatrix
+    - class_path: callbacks.ROC
+    - class_path: callbacks.SNRAccuracy
+
+
+model:
+  learning_rate: 0.0005
+
+data:
+  file_path: "/scratch/tmp/swein/ggwd/output/bbh.hdf"
+  batch_size: 64
+  num_workers: 4

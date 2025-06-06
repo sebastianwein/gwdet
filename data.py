@@ -58,13 +58,11 @@ class GGWDTestDataset(GGWDDataset):
 class Data(LightningDataModule):
     def __init__(self, file_path, batch_size, num_workers):
         super().__init__()
-        self.generator = torch.Generator().manual_seed(42)
         dataset = GGWDDataset(file_path)
         self.train_dataset, self.val_dataset \
-        = random_split(dataset, (0.8, 0.2), generator=self.generator)
+        = random_split(dataset, (0.8, 0.2))
         test_dataset = GGWDTestDataset(file_path)
-        _, self.test_dataset \
-        = random_split(test_dataset, (0.8, 0.2), generator=self.generator) # I don't think this works
+        self.test_dataset = Subset(test_dataset, self.val_dataset.indices)
         self.sample_shape = dataset.sample_shape
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -73,7 +71,6 @@ class Data(LightningDataModule):
         return DataLoader(self.train_dataset, 
                           batch_size=self.batch_size, 
                           shuffle=True, 
-                          generator=self.generator,
                           num_workers=self.num_workers)
     
     def val_dataloader(self):
@@ -88,4 +85,6 @@ class Data(LightningDataModule):
                           shuffle=False, 
                           num_workers=self.num_workers)
 
-
+if __name__ == "__main__":
+    data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", 64, 4)
+    print(len(data.train_dataloader()), len(data.val_dataloader()), len(data.test_dataloader()))
