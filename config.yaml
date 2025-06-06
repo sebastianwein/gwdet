@@ -2,10 +2,15 @@ seed_everything: 42
 
 trainer:
   max_epochs: 10
+  logger:
+  - class_path: CSVLogger
+    init_args:
+      save_dir: . 
+      name: "logs"
   callbacks: 
-    - class_path: callbacks.ConfusionMatrix
-    - class_path: callbacks.ROC
-    - class_path: callbacks.SNRAccuracy
+    - class_path: ConfusionMatrix
+    - class_path: ROC
+    - class_path: SNRAccuracy
 
 
 model:

@@ -40,9 +40,8 @@ class ConfusionMatrix(Callback):
 
 
 class ROC(Callback):
-    def __init__(self, threshold=0.5, n=1000):
-        self.threshold = threshold
-        self.n = n
+    def __init__(self, num_points=1000):
+        self.num_points = num_points
 
     def on_test_end(self, trainer, module):
         x = module.test_samples
@@ -50,9 +49,9 @@ class ROC(Callback):
         y_pred = module.test_predictions
         parameters = module.test_parameters
 
-        tpr, fpr = np.empty(self.n), np.empty(self.n)
-        for i, threshold in enumerate(np.linspace(0, 1, self.n)):
-            mat = module.conf_mat(self.threshold)(y_pred, y)
+        tpr, fpr = np.empty(self.num_points), np.empty(self.num_points)
+        for i, threshold in enumerate(np.linspace(0, 1, self.num_points)):
+            mat = module.conf_mat(threshold)(y_pred, y)
             mat = mat.cpu().numpy()
             mat = mat / np.sum(mat)
             (tn, fp), (fn, tp) = mat

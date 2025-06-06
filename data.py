@@ -55,7 +55,7 @@ class GGWDTestDataset(GGWDDataset):
         return sample, target, parameters
 
 
-class Data(LightningDataModule):
+class GGWDData(LightningDataModule):
     def __init__(self, file_path, batch_size, num_workers):
         super().__init__()
         dataset = GGWDDataset(file_path)
@@ -85,6 +85,3 @@ class Data(LightningDataModule):
                           shuffle=False, 
                           num_workers=self.num_workers)
 
-if __name__ == "__main__":
-    data = Data("/scratch/tmp/swein/ggwd/output/bbh.hdf", 64, 4)
-    print(len(data.train_dataloader()), len(data.val_dataloader()), len(data.test_dataloader()))
