@@ -10,10 +10,8 @@ class ConfusionMatrix(Callback):
         self.threshold = threshold
 
     def on_test_end(self, trainer, module):
-        x = module.test_samples
         y = module.test_labels
         y_pred = module.test_predictions
-        parameters = module.test_parameters
 
         # Confusion matrix
         mat = module.conf_mat(self.threshold)(y_pred, y)
@@ -44,10 +42,8 @@ class ROC(Callback):
         self.num_points = num_points
 
     def on_test_end(self, trainer, module):
-        x = module.test_samples
         y = module.test_labels
         y_pred = module.test_predictions
-        parameters = module.test_parameters
 
         tpr, fpr = np.empty(self.num_points), np.empty(self.num_points)
         for i, threshold in enumerate(np.linspace(0, 1, self.num_points)):
@@ -75,22 +71,21 @@ class SNRAccuracy(Callback):
         self.bins = bins
 
     def on_test_end(self, trainer, module):
-        x = module.test_samples
         y = module.test_labels
         y_pred = module.test_predictions
         parameters = module.test_parameters
 
-        injection_snr = parameters["injection_snr"].cpu().numpy()
+        nomf_snr = parameters["nomf_snr"].cpu().numpy()
         acc = np.empty(self.bins)
         snr = np.linspace(self.min_snr, self.max_snr, self.bins, 
                           endpoint=False)
         delta_snr = (self.max_snr - self.min_snr) / self.bins
 
         for i, r in enumerate(snr):
-            if i==0: mask = injection_snr < r+delta_snr
-            elif i==self.bins-1: mask = r <= injection_snr
-            else: mask = np.logical_and(r <= injection_snr,
-                                        injection_snr < r+delta_snr)
+            if i==0: mask = nomf_snr < r+delta_snr
+            elif i==self.bins-1: mask = r <= nomf_snr
+            else: mask = np.logical_and(r <= nomf_snr,
+                                        nomf_snr < r+delta_snr)
             acc[i] = module.accuracy(y_pred[mask], y[mask]) \
                      if np.sum(mask)>0 else np.nan
 
@@ -101,4 +96,50 @@ class SNRAccuracy(Callback):
         ax.set_ylabel("Accuracy")
 
         fig_path = os.path.join(trainer.log_dir, "snr_acc.png")
+        fig.savefig(fig_path)
+
+
+# TODO: Think of less ugly name
+class SNRAccuracyVarBins(Callback):
+    def __init__(self, bins=10):
+        self.bins = bins
+
+    def on_test_end(self, trainer, module):
+        y = module.test_labels.cpu().numpy()
+        y_pred = module.test_predictions.cpu().numpy()
+        parameters = module.test_parameters
+        snr = parameters["nomf_snr"].cpu().numpy()
+
+        mask = np.isfinite(snr)
+        y = y[mask]
+        y_pred = y_pred[mask]
+        snr = snr[mask] 
+
+        samples_per_bin = len(y)/self.bins
+        batch_idxs = np.int64(np.arange(self.bins) * samples_per_bin)
+        acc = np.empty(self.bins)
+
+        sorted_idxs = np.argsort(snr)
+        snr_sorted = snr[sorted_idxs]
+        y_sorted = y[sorted_idxs]
+        y_pred_sorted = y_pred[sorted_idxs]
+
+        y_batches = np.split(y_sorted, batch_idxs[1:])
+        y_pred_batches = np.split(y_pred_sorted, batch_idxs[1:])
+
+        for i, (y_batch, y_pred_batch) in \
+        enumerate(zip(y_batches, y_pred_batches)):
+            acc[i] = module.accuracy(torch.Tensor(y_pred_batch), 
+                                     torch.Tensor(y_batch))
+
+        fig, ax = plt.subplots()
+        ax.bar(np.arange(self.bins), acc, width=1, align="edge", edgecolor="k")
+        tick_labels = np.append(snr_sorted[batch_idxs], snr_sorted[-1])
+        ax.set_xticks(np.arange(self.bins+1), 
+                      labels=[f"{x:.1f}" for x in tick_labels], 
+                      rotation="vertical")
+        ax.set_xlabel("SNR")
+        ax.set_ylabel("Accuracy")
+
+        fig_path = os.path.join(trainer.log_dir, "snr_acc_var_bins.png")
         fig.savefig(fig_path)

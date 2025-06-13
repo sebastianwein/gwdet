@@ -1,4 +1,4 @@
-from callbacks import ConfusionMatrix, ROC, SNRAccuracy
+from callbacks import *
 from data import GGWDData
 from model import Conv1dModel
 from pytorch_lightning.cli import LightningCLI

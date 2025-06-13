@@ -11,12 +11,13 @@ trainer:
     - class_path: ConfusionMatrix
     - class_path: ROC
     - class_path: SNRAccuracy
+    - class_path: SNRAccuracyVarBins
 
 
 model:
   learning_rate: 0.0005
 
 data:
-  file_path: "/scratch/tmp/swein/ggwd/output/bbh.hdf"
+  file_path: "/scratch/tmp/swein/ggwd/output/ggwd_correlated.hdf"
   batch_size: 64
   num_workers: 4

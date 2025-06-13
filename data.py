@@ -15,6 +15,13 @@ class GGWDDataset(Dataset):
         self.noise_e1 = file["noise_samples"]["e1_strain"]
         self.noise_e2 = file["noise_samples"]["e2_strain"]
         self.noise_e3 = file["noise_samples"]["e3_strain"]
+        attrs = file["normalization_parameters"].attrs
+        self.mean_e1 = attrs["E1_mean"]
+        self.std_e1 = attrs["E1_std"] if attrs["E1_std"]>0 else 10e-23
+        self.mean_e2 = attrs["E2_mean"]
+        self.std_e2 = attrs["E2_std"] if attrs["E1_std"]>0 else 10e-23
+        self.mean_e3 = attrs["E3_mean"]
+        self.std_e3 = attrs["E3_std"] if attrs["E1_std"]>0 else 10e-23
         self.sample_shape = (3, self.injection_e1.shape[1])
 
     def __len__(self):
@@ -22,15 +29,21 @@ class GGWDDataset(Dataset):
 
     def __getitem__(self, idx):
         if idx < len(self.injection_e1): 
-            sample = np.array([self.injection_e1[idx], 
-                               self.injection_e2[idx], 
-                               self.injection_e3[idx]])*1e+23
+            sample = np.array([(self.injection_e1[idx]-self.mean_e1) \
+                               / self.std_e1, 
+                               (self.injection_e2[idx]-self.mean_e2) \
+                               / self.std_e2,  
+                               (self.injection_e3[idx]-self.mean_e3) \
+                               / self.std_e3], dtype=np.float32)
             target = np.array([1], dtype=np.float32)
         else:
             idx -= len(self.injection_e1)
-            sample = np.array([self.noise_e1[idx], 
-                               self.noise_e2[idx], 
-                               self.noise_e3[idx]])*1e+23
+            sample = np.array([(self.noise_e1[idx]-self.mean_e1) \
+                               / self.std_e1, 
+                               (self.noise_e2[idx]-self.mean_e2) \
+                               / self.std_e2,  
+                               (self.noise_e3[idx]-self.mean_e3) \
+                               / self.std_e3], dtype=np.float32)
             target = np.array([0], dtype=np.float32)
         return sample, target
 
@@ -41,7 +54,10 @@ class GGWDTestDataset(GGWDDataset):
         super().__init__(file_path)
         file = h5py.File(file_path, "r")
         group = "injection_parameters"
-        self.keys = list(file[group].keys())
+        self.keys = list()
+        for k in file[group].keys():
+            if np.issubdtype(file[group][k].dtype, float):
+                self.keys.append(k)
         self.datasets = {k: file[group][k] for k in self.keys}
 
     def __getitem__(self, idx):
