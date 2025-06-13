@@ -5,9 +5,10 @@ import torch.nn as nn
 from torchmetrics.classification import BinaryAccuracy, BinaryConfusionMatrix
 
 
-class Conv1dModel(LightningModule):
-    def __init__(self, learning_rate):
+class TransformerModel(LightningModule):
+    def __init__(self, token_width, learning_rate):
         super().__init__()
+        self.token_width = token_width
         self.learning_rate = learning_rate
         self.save_hyperparameters()
 
@@ -16,9 +17,7 @@ class Conv1dModel(LightningModule):
         self.conf_mat = lambda threshold: \
         BinaryConfusionMatrix(threshold).to(self.device)
 
-        self.relu = nn.ReLU()
-        self.sigm = nn.Sigmoid()
-
+        # Hidden representation
         self.conv1 = nn.Conv2d(1, 16, (1, 16), padding="same")
         self.bn1 = nn.BatchNorm2d(16)
         self.max_pool1 = nn.MaxPool2d((1, 4))
@@ -28,11 +27,34 @@ class Conv1dModel(LightningModule):
         self.conv3 = nn.Conv2d(32, 64, (1, 8), padding="same")
         self.bn3 = nn.BatchNorm2d(64)
         self.max_pool3 = nn.MaxPool2d((1, 4))
-        self.fc1 = nn.LazyLinear(64)
-        self.fc2 = nn.Linear(64, 1)
 
-    def forward(self, x):
-        x = torch.unflatten(x, 0, (-1, 1))
+        # Scoring
+        self.bn4 = nn.LazyBatchNorm1d()
+        self.fc1 = nn.LazyLinear(16)
+        self.fc2 = nn.Linear(16, 1)
+        self.softmax = nn.Softmax(dim=1)
+
+        # Fully connected layer
+        self.sigm = nn.Sigmoid()
+
+        # Activation functions
+        self.relu = nn.ReLU()
+
+    def tokenize(self, x): 
+        """ 
+        (batches, height, width) -> (batches, tokens, height, token_width) 
+        where tokens = width // token_width, i.e. data gets cropped
+        """
+        batches, height, width = x.shape
+        tokens = width // self.token_width
+        x = x[:,:,:int(tokens*self.token_width)]
+        x = torch.reshape(x, (batches, tokens, height, self.token_width))
+        return x
+
+    def conv1d(self, x):  # (b, t, h, w)
+        batches, tokens, _, _ = x.shape
+        x = torch.flatten(x, 0, 1)  # flatten batches and tokens
+        x = torch.unflatten(x, 0, (-1, 1))  # (n=b*t, c=1, h, w)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -45,13 +67,28 @@ class Conv1dModel(LightningModule):
         x = self.bn3(x)
         x = self.relu(x)
         x = self.max_pool3(x)
-        # ReLU stack
-        x = torch.flatten(x, 1)
+        x = torch.flatten(x, 1)  # (n, c*h*w)
+        x = torch.unflatten(x, 0, (batches, tokens)) 
+        return x  # (b, t, (c=64)*(h=3)*width)
+    
+    def weight(self, x):  # (b, t, (c=64)*(h=3)*width)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.softmax(x)
+        return x  # (b, t, 1)
+
+    def forward(self, x):
+        x = self.tokenize(x)
+        features = self.conv1d(x)
+        weights = self.weight(features)
+        x = torch.sum(weights*features, dim=1)
+        x = self.bn4(x)
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
         x = self.sigm(x)
-        return x
+        return x  
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
