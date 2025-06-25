@@ -12,7 +12,6 @@ class ConfusionMatrix(Callback):
     def on_test_end(self, trainer, module):
         y = module.test_labels
         y_pred = module.test_predictions
-        print(y, y_pred)
 
         # Confusion matrix
         mat = module.conf_mat(self.threshold)(y_pred, y)

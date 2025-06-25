@@ -29,12 +29,15 @@ class TransformerModel(LightningModule):
         self.max_pool3 = nn.MaxPool2d((1, 4))
 
         # Scoring
-        self.bn4 = nn.LazyBatchNorm1d()
-        self.fc1 = nn.LazyLinear(16)
-        self.fc2 = nn.Linear(16, 1)
+        self.fc1 = nn.LazyLinear(64)
+        self.fc2 = nn.Linear(64, 1)
         self.softmax = nn.Softmax(dim=1)
 
         # Fully connected layer
+        self.bn4 = nn.LazyBatchNorm1d()
+        self.fc3 = nn.LazyLinear(64)
+        self.fc4 = nn.Linear(64, 1)
+        self.softmax = nn.Softmax(dim=1)
         self.sigm = nn.Sigmoid()
 
         # Activation functions
@@ -45,10 +48,11 @@ class TransformerModel(LightningModule):
         (batches, height, width) -> (batches, tokens, height, token_width) 
         where tokens = width // token_width, i.e. data gets cropped
         """
-        batches, height, width = x.shape
+        _, _, width = x.shape
         tokens = width // self.token_width
-        x = x[:,:,:int(tokens*self.token_width)]
-        x = torch.reshape(x, (batches, tokens, height, self.token_width))
+        x = x[:,:,:int(tokens*self.token_width)] 
+        x = torch.unflatten(x, -1, (tokens, self.token_width))  # (b, h, t, w) 
+        x = torch.transpose(x, 1, 2)  # (b, t, h, w)
         return x
 
     def conv1d(self, x):  # (b, t, h, w)
@@ -81,12 +85,12 @@ class TransformerModel(LightningModule):
     def forward(self, x):
         x = self.tokenize(x)
         features = self.conv1d(x)
-        weights = self.weight(features)
+        weights = self.weight(features)  
         x = torch.sum(weights*features, dim=1)
         x = self.bn4(x)
-        x = self.fc1(x)
+        x = self.fc3(x)
         x = self.relu(x)
-        x = self.fc2(x)
+        x = self.fc4(x)
         x = self.sigm(x)
         return x  
 

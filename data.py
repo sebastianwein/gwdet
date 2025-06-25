@@ -40,12 +40,12 @@ class GGWDDataset(Dataset):
                                / self.std_e3], dtype=np.float32)
             target = np.array([1], dtype=np.float32)
         else:
-            idx -= len(self.injection_e1)
-            sample = np.array([(self.noise_e1[idx]-self.mean_e1) \
+            noise_idx = idx-len(self.injection_e1)
+            sample = np.array([(self.noise_e1[noise_idx]-self.mean_e1) \
                                / self.std_e1, 
-                               (self.noise_e2[idx]-self.mean_e2) \
+                               (self.noise_e2[noise_idx]-self.mean_e2) \
                                / self.std_e2,  
-                               (self.noise_e3[idx]-self.mean_e3) \
+                               (self.noise_e3[noise_idx]-self.mean_e3) \
                                / self.std_e3], dtype=np.float32)
             target = np.array([0], dtype=np.float32)
         return sample, target
@@ -64,12 +64,8 @@ class GGWDTestDataset(GGWDDataset):
 
     def __getitem__(self, idx: int) -> tuple:
         sample, target = super().__getitem__(idx)
-        if idx < len(self.injection_e1): 
-            parameters = {k: np.array(self.datasets[k][idx]) 
-                          for k in self.keys}
-        else:
-            parameters = {k: np.full(self.datasets[k][0].shape, np.nan) 
-                          for k in self.keys}
+        parameters = {k: np.array(self.datasets[k][idx]) 
+                         for k in self.keys}
         return sample, target, parameters
     
 
@@ -110,6 +106,7 @@ class LargeDatasetSampler():
     def __iter__(self):
         return self
 
+    # TODO: ugly
     def __next__(self) -> torch.Tensor:
         randperm = self.randperm
         low = self.batch_idx*self.batch_size
@@ -135,8 +132,8 @@ class GGWDData(LightningDataModule):
         file_paths = glob.glob(os.path.join(data_dir, "*.hdf"))
         self.train_dataset = LargeDataset(GGWDDataset, file_paths[:-1])
         self.val_dataset = GGWDDataset(file_paths[-1])
-        indices = list(range(1024))
-        self.test_dataset = Subset(self.val_dataset, indices)
+        indices = torch.randperm(self.train_dataset.file_size)[:1024]
+        self.test_dataset = Subset(GGWDTestDataset(file_paths[-1]), indices)
 
         self.batch_size = batch_size
         self.sampler = LargeDatasetSampler(self.train_dataset, 

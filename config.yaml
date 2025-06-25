@@ -1,7 +1,7 @@
 seed_everything: 42
 
 trainer:
-  max_epochs: 3
+  max_epochs: 5
   logger:
   - class_path: CSVLogger
     init_args:
@@ -11,6 +11,11 @@ trainer:
     - class_path: ConfusionMatrix
     - class_path: ROC
     - class_path: SNRAccuracy
+      init_args:
+        snr_range:
+        - 5
+        - 15
+        bins: 10
 
 
 model:
