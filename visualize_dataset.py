@@ -9,19 +9,18 @@ def main():
     plot_dir = "dataset"
     os.makedirs(plot_dir, exist_ok=True)
 
-    file_path = "/scratch/tmp/swein/ggwd/output/ggwd_longer.hdf"
+    file_path = "/scratch/tmp/swein/ggwd/output/long/data/0.hdf"
     file = h5py.File(file_path, "r")
-    for key in file["normalization_parameters"].attrs.keys():
-        print(key, file["normalization_parameters"].attrs[key])
+    group = "parameters"
 
-    for group in file:
-        for dataset in file[group]:
-            if len(file[group][dataset].shape) == 1 \
-            and np.issubdtype(file[group][dataset].dtype, float):
-                
-                array = np.ndarray(file[group][dataset].shape)
-                file[group][dataset].read_direct(array)
+    for dataset in file[group]:
+            
+            array = np.ndarray(file[group][dataset].shape)
+            file[group][dataset].read_direct(array)
+            mask = np.isfinite(array)
+            array = array[mask]
 
+            if array.size > 0:
                 fig, ax = plt.subplots()
                 ax.hist(array, bins=100)
                 ax.set_xlabel(f"{group}/{dataset}")

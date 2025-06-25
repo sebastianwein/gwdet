@@ -1,6 +1,6 @@
 from callbacks import *
 from data import GGWDData
-from transformer import TransformerModel
+from models.transformer import TransformerModel
 from pytorch_lightning.cli import LightningCLI
 from pytorch_lightning.loggers import TensorBoardLogger 
 

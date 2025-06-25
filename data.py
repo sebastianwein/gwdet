@@ -1,33 +1,36 @@
-import numpy as np
+import glob
 import h5py
+import numpy as np
+import os
 from pytorch_lightning import LightningDataModule
 import torch
 from torch import nn as nn
-from torch.utils.data import Dataset, DataLoader, random_split, Subset
+from torch.utils.data import Dataset, DataLoader, Subset
+from typing import Type
 
 
 class GGWDDataset(Dataset):
-    def __init__(self, file_path):
+    def __init__(self, file_path: str) -> None:
         file = h5py.File(file_path, "r")
-        self.injection_e1 = file["injection_samples"]["e1_strain"]
-        self.injection_e2 = file["injection_samples"]["e2_strain"]
-        self.injection_e3 = file["injection_samples"]["e3_strain"]
-        self.noise_e1 = file["noise_samples"]["e1_strain"]
-        self.noise_e2 = file["noise_samples"]["e2_strain"]
-        self.noise_e3 = file["noise_samples"]["e3_strain"]
-        attrs = file["normalization_parameters"].attrs
-        self.mean_e1 = attrs["E1_mean"]
-        self.std_e1 = attrs["E1_std"] if attrs["E1_std"]>0 else 10e-23
-        self.mean_e2 = attrs["E2_mean"]
-        self.std_e2 = attrs["E2_std"] if attrs["E1_std"]>0 else 10e-23
-        self.mean_e3 = attrs["E3_mean"]
-        self.std_e3 = attrs["E3_std"] if attrs["E1_std"]>0 else 10e-23
-        self.sample_shape = (3, self.injection_e1.shape[1])
+        self.injection_e1 = file["timeseries/samples/injection/e1"]
+        self.injection_e2 = file["timeseries/samples/injection/e2"]
+        self.injection_e3 = file["timeseries/samples/injection/e3"]
+        self.noise_e1 = file["timeseries/samples/noise/e1"]
+        self.noise_e2 = file["timeseries/samples/noise/e2"]
+        self.noise_e3 = file["timeseries/samples/noise/e3"]
+        attrs = file["timeseries/samples"].attrs
+        self.mean_e1 = attrs["e1_mean"]
+        self.std_e1 = attrs["e1_std"] if attrs["e1_std"]>0 else 10e-23
+        self.mean_e2 = attrs["e2_mean"]
+        self.std_e2 = attrs["e2_std"] if attrs["e2_std"]>0 else 10e-23
+        self.mean_e3 = attrs["e3_mean"]
+        self.std_e3 = attrs["e3_std"] if attrs["e3_std"]>0 else 10e-23
+        # self.sample_shape = (3, self.injection_e1.shape[1])
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.injection_e1) + len(self.noise_e1)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple:
         if idx < len(self.injection_e1): 
             sample = np.array([(self.injection_e1[idx]-self.mean_e1) \
                                / self.std_e1, 
@@ -50,17 +53,16 @@ class GGWDDataset(Dataset):
 
 class GGWDTestDataset(GGWDDataset):
     # Inherits GGWDDataset, but returns parameters dict as well in getitem()
-    def __init__(self, file_path):
+    def __init__(self, file_path: str):
         super().__init__(file_path)
-        file = h5py.File(file_path, "r")
-        group = "injection_parameters"
+        group = "parameters"
         self.keys = list()
-        for k in file[group].keys():
-            if np.issubdtype(file[group][k].dtype, float):
-                self.keys.append(k)
-        self.datasets = {k: file[group][k] for k in self.keys}
+        file = h5py.File(file_path, "r")
+        for dataset in file[group]:
+            self.keys.append(dataset)
+        self.datasets = {key: file[group][key] for key in self.keys}
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple:
         sample, target = super().__getitem__(idx)
         if idx < len(self.injection_e1): 
             parameters = {k: np.array(self.datasets[k][idx]) 
@@ -69,35 +71,91 @@ class GGWDTestDataset(GGWDDataset):
             parameters = {k: np.full(self.datasets[k][0].shape, np.nan) 
                           for k in self.keys}
         return sample, target, parameters
+    
+
+class LargeDataset(Dataset):
+    def __init__(self, dataset_cls: Type[Dataset], file_paths: list[str]):
+        # TODO: check all files being compatible
+        self.dataset_cls = dataset_cls
+        self.file_paths = file_paths
+        self.file_idx = 0
+        self.dataset = self.dataset_cls(self.file_paths[self.file_idx])
+        # Assumes all files being of the same size as the first file
+        self.file_size = len(self.dataset)
+    
+    def __len__(self) -> int:
+        return len(self.file_paths)*self.file_size
+    
+    def __getitem__(self, idx):
+        file_idx = idx // self.file_size
+        if file_idx != self.file_idx:
+            self.file_idx = file_idx
+            self.dataset = self.dataset_cls(self.file_paths[self.file_idx])
+        return self.dataset[idx-self.file_idx*self.file_size]
+
+
+class LargeDatasetSampler():
+    def __init__(self, dataset: LargeDataset, batch_size: int):
+        self.num_files = len(dataset.file_paths)
+        self.file_size = dataset.file_size
+        self.batch_size = batch_size
+
+        self.file_idx = 0
+        self.batch_idx = 0
+        self.randperm = torch.randperm(self.file_size)
+
+    def __len__(self) -> int:
+        return (self.file_size/self.batch_size).__ceil__() * self.num_files
+    
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> torch.Tensor:
+        randperm = self.randperm
+        low = self.batch_idx*self.batch_size
+        high = (self.batch_idx+1)*self.batch_size
+
+        if high >= self.file_size:
+            high = None
+            self.file_idx += 1
+            if self.file_idx >= self.num_files: 
+                self.file_idx = 0
+            self.batch_idx = 0
+            self.randperm = torch.randperm(self.file_size) \
+                            + self.file_idx*self.file_size
+        else: 
+            self.batch_idx += 1
+
+        return randperm[low:high]
 
 
 class GGWDData(LightningDataModule):
-    def __init__(self, file_path, batch_size, num_workers):
+    def __init__(self, data_dir: str, batch_size: int, num_workers: int):
         super().__init__()
-        dataset = GGWDDataset(file_path)
-        self.train_dataset, self.val_dataset \
-        = random_split(dataset, (0.8, 0.2))
-        test_dataset = GGWDTestDataset(file_path)
-        self.test_dataset = Subset(test_dataset, self.val_dataset.indices)
-        self.sample_shape = dataset.sample_shape
+        file_paths = glob.glob(os.path.join(data_dir, "*.hdf"))
+        self.train_dataset = LargeDataset(GGWDDataset, file_paths[:-1])
+        self.val_dataset = GGWDDataset(file_paths[-1])
+        indices = list(range(1024))
+        self.test_dataset = Subset(self.val_dataset, indices)
+
         self.batch_size = batch_size
+        self.sampler = LargeDatasetSampler(self.train_dataset, 
+                                           batch_size=self.batch_size)
         self.num_workers = num_workers
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader:
         return DataLoader(self.train_dataset, 
-                          batch_size=self.batch_size, 
-                          shuffle=True, 
+                          batch_sampler=self.sampler,
                           num_workers=self.num_workers)
     
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader:
         return DataLoader(self.val_dataset, 
                           batch_size=self.batch_size, 
                           shuffle=False, 
                           num_workers=self.num_workers)
 
-    def test_dataloader(self):
+    def test_dataloader(self) -> DataLoader:
         return DataLoader(self.test_dataset, 
                           batch_size=self.batch_size, 
                           shuffle=False, 
                           num_workers=self.num_workers)
-

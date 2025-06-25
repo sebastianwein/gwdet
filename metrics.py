@@ -15,7 +15,7 @@ def step_ignore_nan(ax, y, *args, **kwargs):
     ax.plot(x, y, drawstyle="steps-post", *args, **kwargs)
 
 def main():
-    version = 7
+    version = 16
     log_dir = f"/home/s/swein/gwdet/logs/version_{version}"
     metrics_path = os.path.join(log_dir, "metrics.csv")
     conv = lambda x: float(x) if x!="" else None
@@ -30,7 +30,7 @@ def main():
     steps_per_epoch = step[mask][1] - step[mask][0]
     ax_step = ax_epoch.secondary_xaxis("top", 
                                     functions=(lambda s: s*steps_per_epoch, 
-                                                lambda s: s/steps_per_epoch))
+                                               lambda s: s/steps_per_epoch))
     step_ignore_nan(ax_epoch, train_loss_epoch)       
     plot_ignore_nan(ax_epoch, step/steps_per_epoch, train_loss_step)
     ax_epoch.set_xlabel("Epoch")
