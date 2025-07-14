@@ -1,6 +1,5 @@
 h5py
 importlib-metadata
-jsonargparse[signatures]
 matplotlib
 numpy
 pytorch_lightning

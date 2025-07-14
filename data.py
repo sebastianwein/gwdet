@@ -20,12 +20,12 @@ class GGWDDataset(Dataset):
         self.noise_e3 = file["timeseries/samples/noise/e3"]
         attrs = file["timeseries/samples"].attrs
         self.mean_e1 = attrs["e1_mean"]
-        self.std_e1 = attrs["e1_std"] if attrs["e1_std"]>0 else 10e-23
+        self.std_e1 = attrs["e1_std"] if attrs["e1_std"]!=0 else 10e-23
         self.mean_e2 = attrs["e2_mean"]
-        self.std_e2 = attrs["e2_std"] if attrs["e2_std"]>0 else 10e-23
+        self.std_e2 = attrs["e2_std"] if attrs["e2_std"]!=0 else 10e-23
         self.mean_e3 = attrs["e3_mean"]
-        self.std_e3 = attrs["e3_std"] if attrs["e3_std"]>0 else 10e-23
-        # self.sample_shape = (3, self.injection_e1.shape[1])
+        self.std_e3 = attrs["e3_std"] if attrs["e3_std"]!=0 else 10e-23
+        self.sample_shape = (3, self.injection_e1.shape[1])
 
     def __len__(self) -> int:
         return len(self.injection_e1) + len(self.noise_e1)
@@ -40,12 +40,12 @@ class GGWDDataset(Dataset):
                                / self.std_e3], dtype=np.float32)
             target = np.array([1], dtype=np.float32)
         else:
-            noise_idx = idx-len(self.injection_e1)
-            sample = np.array([(self.noise_e1[noise_idx]-self.mean_e1) \
+            shifted_idx = idx-len(self.injection_e1)
+            sample = np.array([(self.noise_e1[shifted_idx]-self.mean_e1) \
                                / self.std_e1, 
-                               (self.noise_e2[noise_idx]-self.mean_e2) \
+                               (self.noise_e2[shifted_idx]-self.mean_e2) \
                                / self.std_e2,  
-                               (self.noise_e3[noise_idx]-self.mean_e3) \
+                               (self.noise_e3[shifted_idx]-self.mean_e3) \
                                / self.std_e3], dtype=np.float32)
             target = np.array([0], dtype=np.float32)
         return sample, target
@@ -70,7 +70,9 @@ class GGWDTestDataset(GGWDDataset):
     
 
 class LargeDataset(Dataset):
-    def __init__(self, dataset_cls: Type[Dataset], file_paths: list[str]):
+    def __init__(self, 
+                 dataset_cls: Type[Dataset], 
+                 file_paths: list[str]) -> None:
         # TODO: check all files being compatible
         self.dataset_cls = dataset_cls
         self.file_paths = file_paths
@@ -78,12 +80,13 @@ class LargeDataset(Dataset):
         self.dataset = self.dataset_cls(self.file_paths[self.file_idx])
         # Assumes all files being of the same size as the first file
         self.file_size = len(self.dataset)
+        self.sample_shape = self.dataset.sample_shape
     
     def __len__(self) -> int:
         return len(self.file_paths)*self.file_size
     
     def __getitem__(self, idx):
-        file_idx = idx // self.file_size
+        file_idx = int(idx/self.file_size)
         if file_idx != self.file_idx:
             self.file_idx = file_idx
             self.dataset = self.dataset_cls(self.file_paths[self.file_idx])
@@ -130,15 +133,17 @@ class GGWDData(LightningDataModule):
     def __init__(self, data_dir: str, batch_size: int, num_workers: int):
         super().__init__()
         file_paths = glob.glob(os.path.join(data_dir, "*.hdf"))
-        self.train_dataset = LargeDataset(GGWDDataset, file_paths[:-1])
-        self.val_dataset = GGWDDataset(file_paths[-1])
-        indices = torch.randperm(self.train_dataset.file_size)[:1024]
+        self.train_dataset = LargeDataset(GGWDDataset, file_paths[:-2])
+        self.val_dataset = GGWDDataset(file_paths[-2])
+        indices = torch.randperm(self.train_dataset.file_size)[:2048]
         self.test_dataset = Subset(GGWDTestDataset(file_paths[-1]), indices)
 
         self.batch_size = batch_size
         self.sampler = LargeDatasetSampler(self.train_dataset, 
                                            batch_size=self.batch_size)
         self.num_workers = num_workers
+        self.sample_shape = self.train_dataset.sample_shape
+        self.out_shape = (self.batch_size, *self.sample_shape)
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(self.train_dataset, 

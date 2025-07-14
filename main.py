@@ -1,12 +1,11 @@
 from callbacks import *
 from data import GGWDData
-from models.transformer import TransformerModel
+from models.mha import MHAModel
 from pytorch_lightning.cli import LightningCLI
-from pytorch_lightning.loggers import TensorBoardLogger 
 
 
 def main():
-    cli = LightningCLI(TransformerModel, GGWDData)
+    cli = LightningCLI(MHAModel, GGWDData)
 
 
 if __name__ == "__main__":
