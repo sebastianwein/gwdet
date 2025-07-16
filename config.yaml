@@ -9,6 +9,9 @@ trainer:
       name: "logs"
   callbacks: 
     - class_path: Summary
+    - class_path: ModelSummary
+      init_args:
+        max_depth: 2
     - class_path: ConfusionMatrix
     - class_path: ROC
     - class_path: SNRAccuracy
@@ -17,16 +20,19 @@ trainer:
         - 5
         - 15
         bins: 10
-    - class_path: VisualizeAttention
-    - class_path: AttentionHeatMap
-    - class_path: SNRBinnedAttentionHeatMap
 
 
 model:
   num_tokens: 16
   embed_dim: 64
+  num_heads: 1
+  num_layers: 1
   ff_dim: 512
-  learning_rate: 0.001
+  dropout: 0.1
+  learning_rate: 0.0005
+  weight_decay: 0
+  warmup: 2000
+  max_iters: 20000
 
 data:
   data_dir: "/scratch/tmp/swein/ggwd/output/long/bugfix"

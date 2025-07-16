@@ -1,3 +1,4 @@
+import math
 from pytorch_lightning import LightningModule
 import torch
 import torch.nn as nn
@@ -12,8 +13,14 @@ class MHAModel(LightningModule):
     def __init__(self, 
                  num_tokens: int, 
                  embed_dim: int, 
+                 num_heads: int, 
+                 num_layers: int,
                  ff_dim: int,
-                 learning_rate: float) -> None:
+                 dropout: float, 
+                 learning_rate: float, 
+                 weight_decay: float, 
+                 warmup: int, 
+                 max_iters: int) -> None:
         
         super().__init__()
         self.save_hyperparameters()
@@ -25,26 +32,31 @@ class MHAModel(LightningModule):
 
         self.conv1d = Conv1dModel(in_channels=3,
                                   out_dim=self.hparams.embed_dim, 
-                                  dropout=0.5, 
-                                  skip=True)
-        
-        self.cls_token = nn.Parameter(torch.zeros(self.hparams.embed_dim))
+                                  dropout=self.hparams.dropout)
 
-        self.pos_embed = nn.Parameter(torch.zeros(self.hparams.num_tokens+1, 
-                                                  self.hparams.embed_dim))
+        self.cls_token \
+        = nn.Parameter(torch.normal(torch.zeros(self.hparams.embed_dim),
+                                    1/math.sqrt(self.hparams.embed_dim)))
         
         self.norm = nn.LayerNorm(self.hparams.embed_dim)
+
+        self.pos_embed \
+        = nn.Parameter(torch.normal(torch.zeros(self.hparams.num_tokens+1,
+                                                self.hparams.embed_dim), 
+                                    1/math.sqrt((self.hparams.num_tokens+1) \
+                                                *self.hparams.embed_dim)))
+        
+        self.dropout = nn.Dropout(p=self.hparams.dropout)
         
         self.transformer \
         = TransformerEncoderModel(embed_dim=self.hparams.embed_dim, 
-                                  num_heads=8, 
-                                  num_layers=8, 
-                                  dropout=0.5,
+                                  num_heads=self.hparams.num_heads, 
+                                  num_layers=self.hparams.num_layers, 
+                                  dropout=self.hparams.dropout,
                                   batch_first=True)
 
         self.cls_head = nn.Sequential(
             nn.LazyBatchNorm1d(),
-            nn.Dropout(p=0.5),
             nn.Linear(self.hparams.embed_dim, self.hparams.ff_dim),
             nn.ReLU(),
             nn.Linear(self.hparams.ff_dim, 1),
@@ -54,7 +66,7 @@ class MHAModel(LightningModule):
     def tokenize(self, x: torch.Tensor) -> torch.Tensor: 
         """ 
         (batches, dets, length) -> (batches, dets, tokens, token_length) 
-        where tokens = length // token_length, i.e. data gets cropped
+        where token_length = length // num_tokens, i.e. data gets cropped
         """
         _, _, length = x.shape
         token_length = length // self.hparams.num_tokens
@@ -73,11 +85,12 @@ class MHAModel(LightningModule):
         cls_token \
         = self.cls_token.unsqueeze(0).unsqueeze(0).repeat(batches, 1, 1)
         x = torch.cat((cls_token, x), 1)  # (b, t+1, embed_dim)
+        x = self.norm(x)   
 
         pos_embed = self.pos_embed.unsqueeze(0).repeat(batches, 1, 1)
         x = x + pos_embed
+        x = self.dropout(x)
 
-        x = self.norm(x)   
         x = self.transformer(x)
         x = x[:,0,:]  # (b, embed_dim)
 
@@ -87,10 +100,11 @@ class MHAModel(LightningModule):
     
     def configure_optimizers(self) -> tuple:
         optimizer = torch.optim.Adam(self.parameters(), 
-                                     lr=self.hparams.learning_rate)
+                                     lr=self.hparams.learning_rate, 
+                                     weight_decay=self.hparams.learning_rate)
         scheduler = CosineWarmupScheduler(optimizer, 
-                                          warmup=1000,
-                                          max_iters=10000)
+                                          warmup=self.hparams.warmup,
+                                          max_iters=self.hparams.max_iters)
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
 
     def training_step(self, batch: int, batch_idx: int) -> float:
@@ -117,7 +131,6 @@ class MHAModel(LightningModule):
     def test_step(self, batch: int, batch_idx: int) -> None:
         x, y, parameters = batch
         y_pred = self(x)
-        features = self.conv1d(self.tokenize(x))
         if batch_idx == 0:
             self.test_samples = x
             self.test_labels = y

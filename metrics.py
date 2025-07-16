@@ -1,3 +1,4 @@
+import argparse
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +16,11 @@ def step_ignore_nan(ax, y, *args, **kwargs):
     ax.plot(x, y, drawstyle="steps-post", *args, **kwargs)
 
 def main():
-    version = 47
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--version", type=int)
+    args = vars(parser.parse_args())
+    version = args["version"]
+    
     log_dir = f"/home/s/swein/gwdet/logs/version_{version}"
     metrics_path = os.path.join(log_dir, "metrics.csv")
     conv = lambda x: float(x) if x!="" else None

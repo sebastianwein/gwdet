@@ -36,13 +36,14 @@ class TransformerEncoderModel(nn.Module):
         return x
 
     def _layer(self, x: torch.Tensor) -> torch.Tensor:
-        q, k, v = x, x, x
+        # Pre layer normalization
+        norm1 = self._norm1(x)
+        q, k, v = norm1, norm1, norm1
         mha, _ = self._mha(q, k, v, need_weights=False)
         x = x + mha
-        x = self._norm1(x)
-        ff = self._feed_forward(x)
+        norm2 = self._norm2(x)
+        ff = self._feed_forward(norm2)
         x = x + ff
-        x = self._norm2(x)
         return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
