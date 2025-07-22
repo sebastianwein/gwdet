@@ -1,17 +1,20 @@
 seed_everything: 42
 
 trainer:
-  max_epochs: 10
+  max_epochs: 12
   logger:
   - class_path: CSVLogger
     init_args:
       save_dir: . 
       name: "logs"
+
   callbacks: 
+
     - class_path: Summary
     - class_path: ModelSummary
       init_args:
-        max_depth: 2
+        max_depth: 3
+
     - class_path: ConfusionMatrix
     - class_path: ROC
     - class_path: SNRAccuracy
@@ -21,20 +24,28 @@ trainer:
         - 15
         bins: 10
 
+    - class_path: AttentionHeatMap
+    - class_path: PositionalEncoding
+
+
 
 model:
-  num_tokens: 16
-  embed_dim: 64
-  num_heads: 1
-  num_layers: 1
+  num_tokens: 32
+  embed_dim: 128
+  num_heads: 16
+  num_layers: 16
   ff_dim: 512
   dropout: 0.1
-  learning_rate: 0.0005
+  pos_enc: "static"
+  learning_rate: 0.0006
   weight_decay: 0
-  warmup: 2000
-  max_iters: 20000
+  warmup: 4000
+  max_iters: 75000
 
 data:
-  data_dir: "/scratch/tmp/swein/ggwd/output/long/bugfix"
+  data_dirs: 
+    - "/scratch/tmp/swein/ggwd/output/long/bugfix"
+    - "/scratch/tmp/swein/ggwd/output/var_merger/data"
+    - "/scratch/tmp/swein/ggwd/output/var_merger_whole/data"
   batch_size: 64
   num_workers: 4

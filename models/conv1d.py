@@ -1,70 +1,60 @@
 import torch
 import torch.nn as nn
+from pytorch_lightning import LightningModule
 
 
-class Conv1dModel(nn.Module):
+class Conv1dModel(LightningModule):
     def __init__(self, 
-                 in_channels: int,
-                 out_dim: int, 
-                 batch_norm: bool = True, 
-                 dropout: float = 0) -> None:
-        
+                 channels: list[int],
+                 kernel_sizes: list[int],
+                 pool_sizes: list[int]) -> None:
         super().__init__()
-        
-        self.out_dim = out_dim
-        self.batch_norm = batch_norm  
-        self.dropout = dropout      
 
-        self.conv1 = nn.Conv1d(in_channels, 16, 15)
-        self.bn1 = nn.BatchNorm1d(16)
-        self.max_pool1 = nn.MaxPool1d(4)
-        self.conv2 = nn.Conv1d(16, 32, 9)
-        self.bn2 = nn.BatchNorm1d(32)
-        self.max_pool2 = nn.MaxPool1d(4)
-        self.conv3 = nn.Conv1d(32, 64, 7)
-        self.bn3 = nn.BatchNorm1d(64)
-        self.max_pool3 = nn.MaxPool1d(4)
+        activation = nn.ReLU()
+        self.seq = nn.Sequential()
+        for i, kernel_size in enumerate(kernel_sizes):
+            in_channels, out_channels = channels[i], channels[i+1]
+            pool_size = pool_sizes[i]
+            layer = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size), 
+                nn.BatchNorm1d(out_channels), 
+                nn.MaxPool1d(pool_size), 
+                activation
+            )
+            self.seq.append(layer)
 
-        self.conv4 = nn.Conv1d(64, 64, 3, padding="same")
-        self.skip1 = nn.Conv1d(64, 64, 1)
-        self.bn4 = nn.BatchNorm1d(64)
-        self.conv5 = nn.Conv1d(64, 64, 3, padding="same")
-        self.skip2 = nn.Conv1d(64, 64, 1)
-        self.bn5 = nn.BatchNorm1d(64)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.seq(x)
+        return x  
+    
+
+class ResConv1dModel(nn.Module):
+    def __init__(self, channels: int, kernel_size: int, 
+                 num_layers: int) -> None:
+        super().__init__()
 
         self.activation = nn.ReLU()
+        self.seq = nn.Sequential()
+        for _ in range(num_layers):
+            skip = nn.Conv1d(channels, channels, 1)
+            conv = nn.Conv1d(channels, channels, kernel_size, padding="same")
+            layer = nn.Sequential(
+                AddModel(skip, conv), 
+                nn.BatchNorm1d(channels), 
+                self.activation
+            ) 
+            self.seq.append(layer)
 
-        self.dp = nn.Dropout(p=self.dropout)
-        self.fc = nn.LazyLinear(self.out_dim)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.seq(x)
+        return x
+    
 
-    def forward(self, x):  # (n, c, l)
+class AddModel(nn.Module):
+    def __init__(self, module1: nn.Module, module2: nn.Module) -> None:
+        super().__init__()
+        self.module1 = module1
+        self.module2 = module2
 
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.activation(x)
-        x = self.max_pool1(x)
-
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.activation(x)
-        x = self.max_pool2(x)
-
-        x = self.conv3(x)
-        x = self.bn3(x)
-        x = self.activation(x)
-        x = self.max_pool3(x)
-
-        x = self.skip1(x) + self.conv4(x)
-        x = self.bn4(x)
-        x = self.activation(x)
-
-        x = self.skip2(x) + self.conv5(x)
-        x = self.bn5(x)
-        x = self.activation(x)
-
-        x = x.flatten(1)
-        x = self.dp(x)
-        x = self.fc(x)
-        x = self.activation(x)
-        
-        return x  # (n, c*l)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.module1(x) + self.module2(x)

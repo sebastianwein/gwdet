@@ -1,4 +1,5 @@
-from callbacks import *
+from callbacks.default import *
+from callbacks.mha import *
 from data import GGWDData
 from models.mha import MHAModel
 from pytorch_lightning.callbacks import ModelSummary

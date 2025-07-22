@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 import os
 from pytorch_lightning import LightningDataModule
+import random
 import torch
 from torch import nn as nn
 from torch.utils.data import Dataset, DataLoader, Subset
@@ -130,13 +131,18 @@ class LargeDatasetSampler():
 
 
 class GGWDData(LightningDataModule):
-    def __init__(self, data_dir: str, batch_size: int, num_workers: int):
+    def __init__(self, data_dirs: list[str], batch_size: int, num_workers: int):
         super().__init__()
-        file_paths = glob.glob(os.path.join(data_dir, "*.hdf"))
-        self.train_dataset = LargeDataset(GGWDDataset, file_paths[:-2])
-        self.val_dataset = GGWDDataset(file_paths[-2])
+        files = list()
+        for dir in data_dirs:
+            files.extend(glob.glob(os.path.join(dir, "*.hdf")))
+        num_train_files = int(0.9*len(files)) - 1
+        train_files = random.sample(files[:-1], num_train_files)
+        val_files = list(set(files[:-1]) - set(train_files))
+        self.train_dataset = LargeDataset(GGWDDataset, train_files)
+        self.val_dataset = LargeDataset(GGWDDataset, val_files)
         indices = torch.randperm(self.train_dataset.file_size)[:2048]
-        self.test_dataset = Subset(GGWDTestDataset(file_paths[-1]), indices)
+        self.test_dataset = Subset(GGWDTestDataset(files[-1]), indices)
 
         self.batch_size = batch_size
         self.sampler = LargeDatasetSampler(self.train_dataset, 

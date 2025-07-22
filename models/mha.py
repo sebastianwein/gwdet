@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torchmetrics.classification import BinaryAccuracy, BinaryConfusionMatrix
 
-from .conv1d import Conv1dModel
+from .conv1d import Conv1dModel, ResConv1dModel
 from .scheduler import CosineWarmupScheduler
 from .transformer import TransformerEncoderModel
 
@@ -20,7 +20,8 @@ class MHAModel(LightningModule):
                  learning_rate: float, 
                  weight_decay: float, 
                  warmup: int, 
-                 max_iters: int) -> None:
+                 max_iters: int, 
+                 pos_enc: str) -> None:
         
         super().__init__()
         self.save_hyperparameters()
@@ -30,21 +31,43 @@ class MHAModel(LightningModule):
         self.conf_mat = lambda threshold: \
         BinaryConfusionMatrix(threshold).to(self.device)
 
-        self.conv1d = Conv1dModel(in_channels=3,
-                                  out_dim=self.hparams.embed_dim, 
-                                  dropout=self.hparams.dropout)
+        self.conv1d = Conv1dModel(channels=[3, 16, 32, 64], 
+                                  kernel_sizes=[15, 9, 7], 
+                                  pool_sizes=[4, 4, 4])
+        self.res_conv1d \
+        = ResConv1dModel(channels=64, kernel_size=3, num_layers=2)
+
+        self.embed = nn.Sequential(
+            nn.Dropout(self.hparams.dropout),
+            nn.LazyLinear(self.hparams.embed_dim), 
+            nn.ReLU()
+        )
+
+        self.norm = nn.LayerNorm(self.hparams.embed_dim)
 
         self.cls_token \
         = nn.Parameter(torch.normal(torch.zeros(self.hparams.embed_dim),
                                     1/math.sqrt(self.hparams.embed_dim)))
         
-        self.norm = nn.LayerNorm(self.hparams.embed_dim)
+        dim0 = self.hparams.num_tokens
+        dim1 = self.hparams.embed_dim
+        if self.hparams.pos_enc == "learnable":
+            self.pos_enc = nn.Parameter(torch.normal(torch.zeros(dim0, dim1), 
+                                                     1/math.sqrt(dim0*dim1)))
+        elif self.hparams.pos_enc == "static":
+            self.pos_enc = torch.empty((dim0, dim1))
+            for i in range(dim0):
+                if i%2==0:
+                    arr = [math.sin(pos/(10_000**(i/dim0))) 
+                           for pos in range(dim1)]
+                    self.pos_enc[i] = torch.Tensor(arr)
+                else:
+                    arr = [math.cos(pos/(10_000**((i-1)/dim0)))
+                           for pos in range(dim1)]        
+                    self.pos_enc[i] = torch.Tensor(arr)
+        else: 
+            raise ValueError(f"Unknown value {pos_enc=}")
 
-        self.pos_embed \
-        = nn.Parameter(torch.normal(torch.zeros(self.hparams.num_tokens+1,
-                                                self.hparams.embed_dim), 
-                                    1/math.sqrt((self.hparams.num_tokens+1) \
-                                                *self.hparams.embed_dim)))
         
         self.dropout = nn.Dropout(p=self.hparams.dropout)
         
@@ -65,38 +88,46 @@ class MHAModel(LightningModule):
 
     def tokenize(self, x: torch.Tensor) -> torch.Tensor: 
         """ 
-        (batches, dets, length) -> (batches, dets, tokens, token_length) 
+        (*, length) -> (*, tokens, token_length) 
         where token_length = length // num_tokens, i.e. data gets cropped
         """
-        _, _, length = x.shape
+        length = x.size(-1)
         token_length = length // self.hparams.num_tokens
-        x = x[:,:,:int(self.hparams.num_tokens*token_length)] 
-        x = x.unflatten(-1, (self.hparams.num_tokens, token_length))  # (b, d, t, l) 
+        x = x[...,:int(self.hparams.num_tokens*token_length)] 
+        x = x.unflatten(-1, (self.hparams.num_tokens, token_length))  
         return x
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, 
+                x: torch.Tensor, 
+                need_weights: bool = False) -> torch.Tensor:
 
-        x = self.tokenize(x)
-        batches, _, tokens, _ = x.shape
-        x = x.transpose(1, 2).flatten(0, 1)    # (b*t, d, token_len)
-        x = self.conv1d(x)                     # (b*t, embed_dim)
-        x = x.unflatten(0, (batches, tokens))  # (b, t, embed_dim)
+        x = self.conv1d(x)       
+        x = self.res_conv1d(x)              # (b, c, l)
+        x = self.tokenize(x)                # (b, c, t, token_length)
+        x = x.transpose(1, 2).flatten(-2)   # (b, t, c*l)  
+        x = self.embed(x)                   # (b, t, embed_dim)
+        x = self.norm(x)   
+
+        batches = x.size(0)
+
+        pos_enc = self.pos_enc.unsqueeze(0).repeat(batches, 1, 1)
+        pos_enc = pos_enc.to(x)
+        x = x + pos_enc
+        x = self.dropout(x)
 
         cls_token \
         = self.cls_token.unsqueeze(0).unsqueeze(0).repeat(batches, 1, 1)
         x = torch.cat((cls_token, x), 1)  # (b, t+1, embed_dim)
-        x = self.norm(x)   
 
-        pos_embed = self.pos_embed.unsqueeze(0).repeat(batches, 1, 1)
-        x = x + pos_embed
-        x = self.dropout(x)
-
-        x = self.transformer(x)
+        x, weights = self.transformer(x, need_weights)
         x = x[:,0,:]  # (b, embed_dim)
 
         x = self.cls_head(x)
 
-        return x
+        if need_weights:
+            return x, weights
+        else: 
+            return x
     
     def configure_optimizers(self) -> tuple:
         optimizer = torch.optim.Adam(self.parameters(), 
@@ -130,16 +161,18 @@ class MHAModel(LightningModule):
 
     def test_step(self, batch: int, batch_idx: int) -> None:
         x, y, parameters = batch
-        y_pred = self(x)
+        y_pred, weights = self(x, need_weights=True)
         if batch_idx == 0:
             self.test_samples = x
             self.test_labels = y
             self.test_predictions = y_pred
+            self.test_weights = weights
             self.test_parameters = parameters
         else: 
             self.test_samples = torch.cat((self.test_samples, x))
             self.test_labels = torch.cat((self.test_labels, y))
             self.test_predictions = torch.cat((self.test_predictions, y_pred))
+            self.test_weights = torch.cat((self.test_weights, weights))
             for key in self.test_parameters:
                 self.test_parameters[key] \
                 = torch.cat((self.test_parameters[key], parameters[key]))

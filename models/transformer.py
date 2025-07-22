@@ -19,34 +19,40 @@ class TransformerEncoderModel(nn.Module):
         self.batch_first = batch_first
         self.ff_dim = 2048
 
-        self._norm1 = nn.LayerNorm(self.embed_dim)
-        self._mha = nn.MultiheadAttention(embed_dim=self.embed_dim, 
-                                          num_heads=self.num_heads, 
-                                          dropout=self.dropout,
-                                          batch_first=self.batch_first)
-        self._lin1 = nn.Linear(self.embed_dim, self.ff_dim)
-        self._activation = nn.GELU()
-        self._lin2 = nn.Linear(self.ff_dim, self.embed_dim)
-        self._norm2 = nn.LayerNorm(self.embed_dim)
+        self.norm1 = nn.LayerNorm(self.embed_dim)
+        self.mha = nn.MultiheadAttention(embed_dim=self.embed_dim, 
+                                         num_heads=self.num_heads, 
+                                         dropout=self.dropout,
+                                         batch_first=self.batch_first)
+        self.lin1 = nn.Linear(self.embed_dim, self.ff_dim)
+        self.activation = nn.GELU()
+        self.lin2 = nn.Linear(self.ff_dim, self.embed_dim)
+        self.norm2 = nn.LayerNorm(self.embed_dim)
 
-    def _feed_forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self._lin1(x)
-        x = self._activation(x)
-        x = self._lin2(x)
+    def feed_forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.lin1(x)
+        x = self.activation(x)
+        x = self.lin2(x)
         return x
 
-    def _layer(self, x: torch.Tensor) -> torch.Tensor:
+    def layer(self, 
+              x: torch.Tensor, 
+              need_weights: bool = False) -> torch.Tensor:
         # Pre layer normalization
-        norm1 = self._norm1(x)
+        norm1 = self.norm1(x)
         q, k, v = norm1, norm1, norm1
-        mha, _ = self._mha(q, k, v, need_weights=False)
+        mha, weigths = self.mha(q, k, v, 
+                                need_weights=need_weights, 
+                                average_attn_weights=False)
         x = x + mha
-        norm2 = self._norm2(x)
-        ff = self._feed_forward(norm2)
+        norm2 = self.norm2(x)
+        ff = self.feed_forward(norm2)
         x = x + ff
-        return x
+        return x, weigths
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, 
+                x: torch.Tensor, 
+                need_weights: bool = False) -> torch.Tensor:
         for _ in range(self.num_layers):
-            x = self._layer(x)
-        return x
+            x, weigths = self.layer(x, need_weights)
+        return x, weigths

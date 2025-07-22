@@ -6,37 +6,6 @@ import torch
 import torch.nn as nn
 
 
-class VisualizeAttention(Callback):
-    def __init__(self, min_snr: float=10):
-        self.min_snr = min_snr
-
-    def on_test_end(self, trainer, module):
-        parameters = module.test_parameters
-        snr = parameters["nomf_snr"].cpu().numpy()
-        idx = np.random.choice(np.flatnonzero(snr>self.min_snr))
-        snr = snr[idx]
-        weights = parameters["weights"][idx].cpu().numpy()
-        x = module.test_samples[idx].cpu().numpy()
-        y = module.test_labels[idx].squeeze().cpu().numpy()
-        y_pred = module.test_predictions[idx].squeeze().cpu().numpy()
-
-        token_len = module.token_length
-        fig, axs = plt.subplots(3, sharex=True)
-        for i, ax in enumerate(axs):
-            for j, w in enumerate(weights[i]):
-                t = (np.arange(token_len)+j*token_len) 
-                ax.plot(t, x[i][t])
-                ax.text(t[len(t)//2], 0, int(100*w), c="k", ha="center", 
-                        va="center")
-            ax.set_ylabel(f"Strain (ET{i+1})")
-        axs[-1].set_xlabel("Time step")
-        fig.suptitle(f"Target={int(y)}, prediction={y_pred:.2f}, snr={snr:.1f}")
-        fig.subplots_adjust(hspace=0)
-
-        fig_path = os.path.join(trainer.log_dir, "attention.png")
-        fig.savefig(fig_path)
-
-
 class AttentionHeatMap(Callback):
     def on_test_end(self, trainer, module):
         parameters = module.test_parameters
@@ -106,4 +75,35 @@ class SNRBinnedAttentionHeatMap(Callback):
 
         fig_path = os.path.join(trainer.log_dir, 
                                 "snr_binned_attention_heat_map.png")
+        fig.savefig(fig_path)
+
+
+class VisualizeAttention(Callback):
+    def __init__(self, min_snr: float=10):
+        self.min_snr = min_snr
+
+    def on_test_end(self, trainer, module):
+        parameters = module.test_parameters
+        snr = parameters["nomf_snr"].cpu().numpy()
+        idx = np.random.choice(np.flatnonzero(snr>self.min_snr))
+        snr = snr[idx]
+        weights = parameters["weights"][idx].cpu().numpy()
+        x = module.test_samples[idx].cpu().numpy()
+        y = module.test_labels[idx].squeeze().cpu().numpy()
+        y_pred = module.test_predictions[idx].squeeze().cpu().numpy()
+
+        token_len = module.token_length
+        fig, axs = plt.subplots(3, sharex=True)
+        for i, ax in enumerate(axs):
+            for j, w in enumerate(weights[i]):
+                t = (np.arange(token_len)+j*token_len) 
+                ax.plot(t, x[i][t])
+                ax.text(t[len(t)//2], 0, int(100*w), c="k", ha="center", 
+                        va="center")
+            ax.set_ylabel(f"Strain (ET{i+1})")
+        axs[-1].set_xlabel("Time step")
+        fig.suptitle(f"Target={int(y)}, prediction={y_pred:.2f}, snr={snr:.1f}")
+        fig.subplots_adjust(hspace=0)
+
+        fig_path = os.path.join(trainer.log_dir, "attention.png")
         fig.savefig(fig_path)
