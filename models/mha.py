@@ -4,15 +4,15 @@ import torch
 import torch.nn as nn
 from torchmetrics.classification import BinaryAccuracy, BinaryConfusionMatrix
 
-from .conv1d import Conv1dModel, ResConv1dModel
+from .conv1d import Conv1dModel
 from .scheduler import CosineWarmupScheduler
 from .transformer import TransformerEncoderModel
-from .posenc import PosEncoding
+from .posenc import LazyPosEncoding
 
 
 class MHAModel(LightningModule):
     def __init__(self, 
-                 num_tokens: int, 
+                 token_length: int, 
                  embed_dim: int, 
                  num_heads: int, 
                  num_layers: int,
@@ -28,32 +28,23 @@ class MHAModel(LightningModule):
 
         self.loss_fn = nn.BCELoss()
         self.accuracy = BinaryAccuracy()
-        self.conf_mat = lambda threshold: \
-        BinaryConfusionMatrix(threshold).to(self.device)
 
-        self.conv1d = Conv1dModel(channels=[3, 8, 16, 32, 64], 
-                                  kernel_sizes=[15, 9, 7, 5], 
-                                  strides=[2, 2, 2, 2])
-        self.first_res_conv1d \
-        = ResConv1dModel(channels=64, kernel_size=3, num_layers=3)
-        self.second_res_conv1d \
-        = ResConv1dModel(channels=64, kernel_size=2, num_layers=2)
-
+        self.conv = Conv1dModel(channels=[1, 8, 16, 32, 64], 
+                                kernel_sizes=[15, 9, 7, 5], 
+                                pool_sizes=[2, 2, 2, 2], 
+                                strides=[2, 2, 2, 2])
         self.embed = nn.Sequential(
             nn.Dropout(self.hparams.dropout),
             nn.LazyLinear(self.hparams.embed_dim), 
             nn.ReLU()
         )
-
         self.norm = nn.LayerNorm(self.hparams.embed_dim)
 
         self.cls_token \
         = nn.Parameter(torch.normal(torch.zeros(self.hparams.embed_dim),
                                     1/math.sqrt(self.hparams.embed_dim)))
         
-        dim0 = self.hparams.num_tokens
-        dim1 = self.hparams.embed_dim
-        self.pos_enc = PosEncoding(dim0, dim1, mode=self.hparams.pos_enc)
+        self.pos_enc = LazyPosEncoding(mode=self.hparams.pos_enc)
 
         self.dropout = nn.Dropout(p=self.hparams.dropout)
         
@@ -67,7 +58,7 @@ class MHAModel(LightningModule):
         self.cls_head = nn.Sequential(
             nn.LazyBatchNorm1d(),
             nn.Linear(self.hparams.embed_dim, self.hparams.ff_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(self.hparams.ff_dim, 1),
             nn.Sigmoid()
         )
@@ -75,27 +66,28 @@ class MHAModel(LightningModule):
     def tokenize(self, x: torch.Tensor) -> torch.Tensor: 
         """ 
         (*, length) -> (*, tokens, token_length) 
-        where token_length = length // num_tokens, i.e. data gets cropped
+        where num_tokens = length // token_length, i.e. data gets cropped
         """
         length = x.size(-1)
-        token_length = length // self.hparams.num_tokens
-        x = x[...,:int(self.hparams.num_tokens*token_length)] 
-        x = x.unflatten(-1, (self.hparams.num_tokens, token_length))  
+        tokens = length // self.hparams.token_length
+        x = x[...,:int(tokens*self.hparams.token_length)] 
+        x = x.unflatten(-1, (tokens, self.hparams.token_length))  
         return x
     
     def forward(self, 
                 x: torch.Tensor, 
                 need_weights: bool = False) -> torch.Tensor:
 
-        x = self.conv1d(x)       
-        x = self.first_res_conv1d(x)        
-        x = self.second_res_conv1d(x)       # (b, c, l)
-        x = self.tokenize(x)                # (b, c, t, token_length)
-        x = x.transpose(1, 2).flatten(-2)   # (b, t, c*l)  
-        x = self.embed(x)                   # (b, t, embed_dim)
+        x = self.tokenize(x)                          # (b, dets, t, token_length)
+        batches, dets, tokens, _ = x.shape
+        x = x.transpose(1, 2)                         # (b, t, dets, token_length)
+        x = x.flatten(0, 2)                           # (b*t*dets, token_length)
+        x = x.unsqueeze(1)                            # (b*t*dets, 1, token_length) 
+        x = self.conv(x)                              # (b*t*dets, c', l')
+        x = x.unflatten(0, (batches, tokens, dets))   # (b, t, dets, c', l')
+        x = x.flatten(-3)                             # (b, t, det*c'*l')
+        x = self.embed(x)                             # (b, t, embed_dim)    
         x = self.norm(x)   
-
-        batches = x.size(0)
 
         x = self.pos_enc(x)
         x = self.dropout(x)

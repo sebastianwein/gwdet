@@ -29,10 +29,10 @@ trainer:
 model:
   class_path: models.mha.MHAModel
   init_args:
-    num_tokens: 256
+    token_length: 4096
     embed_dim: 128
     pos_enc: "static"
-    num_heads: 8
+    num_heads: 16
     num_layers: 16
     ff_dim: 512
     dropout: 0.3
