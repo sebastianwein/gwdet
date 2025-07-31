@@ -7,6 +7,7 @@ from torchmetrics.classification import BinaryAccuracy, BinaryConfusionMatrix
 from .conv1d import Conv1dModel, ResConv1dModel
 from .scheduler import CosineWarmupScheduler
 from .transformer import TransformerEncoderModel
+from .posenc import PosEncoding
 
 
 class MHAModel(LightningModule):
@@ -20,7 +21,6 @@ class MHAModel(LightningModule):
                  learning_rate: float, 
                  weight_decay: float, 
                  warmup: int, 
-                 max_iters: int, 
                  pos_enc: str) -> None:
         
         super().__init__()
@@ -31,11 +31,13 @@ class MHAModel(LightningModule):
         self.conf_mat = lambda threshold: \
         BinaryConfusionMatrix(threshold).to(self.device)
 
-        self.conv1d = Conv1dModel(channels=[3, 16, 32, 64], 
-                                  kernel_sizes=[15, 9, 7], 
-                                  pool_sizes=[4, 4, 4])
-        self.res_conv1d \
-        = ResConv1dModel(channels=64, kernel_size=3, num_layers=2)
+        self.conv1d = Conv1dModel(channels=[3, 8, 16, 32, 64], 
+                                  kernel_sizes=[15, 9, 7, 5], 
+                                  strides=[2, 2, 2, 2])
+        self.first_res_conv1d \
+        = ResConv1dModel(channels=64, kernel_size=3, num_layers=3)
+        self.second_res_conv1d \
+        = ResConv1dModel(channels=64, kernel_size=2, num_layers=2)
 
         self.embed = nn.Sequential(
             nn.Dropout(self.hparams.dropout),
@@ -51,24 +53,8 @@ class MHAModel(LightningModule):
         
         dim0 = self.hparams.num_tokens
         dim1 = self.hparams.embed_dim
-        if self.hparams.pos_enc == "learnable":
-            self.pos_enc = nn.Parameter(torch.normal(torch.zeros(dim0, dim1), 
-                                                     1/math.sqrt(dim0*dim1)))
-        elif self.hparams.pos_enc == "static":
-            self.pos_enc = torch.empty((dim0, dim1))
-            for i in range(dim0):
-                if i%2==0:
-                    arr = [math.sin(pos/(10_000**(i/dim0))) 
-                           for pos in range(dim1)]
-                    self.pos_enc[i] = torch.Tensor(arr)
-                else:
-                    arr = [math.cos(pos/(10_000**((i-1)/dim0)))
-                           for pos in range(dim1)]        
-                    self.pos_enc[i] = torch.Tensor(arr)
-        else: 
-            raise ValueError(f"Unknown value {pos_enc=}")
+        self.pos_enc = PosEncoding(dim0, dim1, mode=self.hparams.pos_enc)
 
-        
         self.dropout = nn.Dropout(p=self.hparams.dropout)
         
         self.transformer \
@@ -102,7 +88,8 @@ class MHAModel(LightningModule):
                 need_weights: bool = False) -> torch.Tensor:
 
         x = self.conv1d(x)       
-        x = self.res_conv1d(x)              # (b, c, l)
+        x = self.first_res_conv1d(x)        
+        x = self.second_res_conv1d(x)       # (b, c, l)
         x = self.tokenize(x)                # (b, c, t, token_length)
         x = x.transpose(1, 2).flatten(-2)   # (b, t, c*l)  
         x = self.embed(x)                   # (b, t, embed_dim)
@@ -110,9 +97,7 @@ class MHAModel(LightningModule):
 
         batches = x.size(0)
 
-        pos_enc = self.pos_enc.unsqueeze(0).repeat(batches, 1, 1)
-        pos_enc = pos_enc.to(x)
-        x = x + pos_enc
+        x = self.pos_enc(x)
         x = self.dropout(x)
 
         cls_token \
@@ -133,9 +118,12 @@ class MHAModel(LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), 
                                      lr=self.hparams.learning_rate, 
                                      weight_decay=self.hparams.learning_rate)
+        self.trainer.fit_loop.setup_data()
+        iters = len(self.trainer.train_dataloader.dataset)
+        max_iters = self.trainer.max_epochs*iters
         scheduler = CosineWarmupScheduler(optimizer, 
                                           warmup=self.hparams.warmup,
-                                          max_iters=self.hparams.max_iters)
+                                          max_iters=max_iters)
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
 
     def training_step(self, batch: int, batch_idx: int) -> float:

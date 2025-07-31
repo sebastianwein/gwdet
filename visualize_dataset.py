@@ -9,7 +9,7 @@ def main():
     plot_dir = "dataset"
     os.makedirs(plot_dir, exist_ok=True)
 
-    file_path = "/scratch/tmp/swein/ggwd/output/var_merger/data/0.hdf"
+    file_path = "/scratch/tmp/swein/ggwd/output/longer/data/0.hdf"
     file = h5py.File(file_path, "r")
     group = "parameters"
 

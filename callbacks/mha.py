@@ -38,7 +38,7 @@ class AttentionHeatMap(Callback):
 class PositionalEncoding(Callback):
     def on_test_end(self, trainer, module):
 
-        pos_enc = module.pos_enc.cpu().numpy()
+        pos_enc = module.pos_enc.pos_enc.cpu().numpy()
         cos_sim = [[np.sum(vec1*vec2)/np.sqrt(np.sum(vec1**2)*np.sum(vec2**2)) 
                     for vec1 in pos_enc] for vec2 in pos_enc]
 
@@ -46,7 +46,7 @@ class PositionalEncoding(Callback):
         pc = ax.pcolormesh(pos_enc)
         fig.colorbar(pc, ax=ax, label="Positinal encoding")
         ax.set_xlabel("Token")
-        ax.set_ylabel("Token")
+        ax.set_ylabel("Token")  
 
         fig_path = os.path.join(trainer.log_dir, "pos_enc.png")
         fig.savefig(fig_path)
