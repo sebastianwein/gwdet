@@ -14,9 +14,11 @@ from typing import Type
 class GGWDDataset(Dataset):
     def __init__(self, 
                  file_path: str, 
+                 length: int = None,
                  whiten: bool = False, 
                  segment_duration: float = None, 
                  max_filter_duration: float = None) -> None:
+        
         file = h5py.File(file_path, "r")
         self.injection_e1 = file["timeseries/samples/injection/e1"]
         self.injection_e2 = file["timeseries/samples/injection/e2"]
@@ -25,7 +27,9 @@ class GGWDDataset(Dataset):
         self.noise_e2 = file["timeseries/samples/noise/e2"]
         self.noise_e3 = file["timeseries/samples/noise/e3"]
         self.delta_t = file["timeseries"].attrs["delta_t"]
-        self.sample_shape = (3, self.injection_e1.shape[1])
+        if length is not None: self.length = length
+        else: self.length = self.injection_e1.shape[1]
+        self.sample_shape = (3, self.length)
 
         attrs = file["timeseries/samples"].attrs
         self.mean_e1 = attrs["e1_mean"]
@@ -72,6 +76,13 @@ class GGWDDataset(Dataset):
                            remove_corrupted=False)
                    for s in sample]
             sample = np.array(arr)
+        if self.length <= sample.shape[1]:
+            sample = sample[:,:self.length]
+        else:
+            pad_width = self.length - sample.shape[1]
+            before = random.randint(0, pad_width)
+            after = pad_width - before
+            sample = np.pad(sample, ((0, 0), (before, after)))
         return sample, target
 
 
@@ -100,10 +111,11 @@ class LargeDataset(Dataset):
                  **kwargs) -> None:
         # TODO: check all files being compatible
         self.dataset_cls = dataset_cls
+        self.kwargs = kwargs
         self.file_paths = file_paths
         self.file_idx = 0
         self.dataset = self.dataset_cls(self.file_paths[self.file_idx],
-                                        **kwargs)
+                                        **self.kwargs)
         # Assumes all files being of the same size as the first file
         self.file_size = len(self.dataset)
         self.sample_shape = self.dataset.sample_shape
@@ -115,7 +127,8 @@ class LargeDataset(Dataset):
         file_idx = int(idx/self.file_size)
         if file_idx != self.file_idx:
             self.file_idx = file_idx
-            self.dataset = self.dataset_cls(self.file_paths[self.file_idx])
+            self.dataset = self.dataset_cls(self.file_paths[self.file_idx], 
+                                            **self.kwargs)
         return self.dataset[idx-self.file_idx*self.file_size]
 
 

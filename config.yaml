@@ -1,7 +1,7 @@
 seed_everything: 42
 
 trainer:
-  max_epochs: 10
+  max_epochs: 64
   logger:
   - class_path: CSVLogger
     init_args:
@@ -11,8 +11,8 @@ trainer:
   callbacks: 
     - class_path: callbacks.default.Summary
     - class_path: pytorch_lightning.callbacks.ModelSummary
-      init_args:
-        max_depth: 8
+      init_args: 
+        max_depth: 3
 
     - class_path: callbacks.default.ConfusionMatrix
     - class_path: callbacks.default.ROC
@@ -24,6 +24,7 @@ trainer:
         bins: 10
 
     - class_path: callbacks.mha.AttentionHeatMap
+    - class_path: callbacks.mha.PlotKernels
     - class_path: callbacks.mha.PositionalEncoding
 
 model:
@@ -35,7 +36,7 @@ model:
     num_heads: 16
     num_layers: 16
     ff_dim: 512
-    dropout: 0.3
+    dropout: 0.25
     learning_rate: 0.0005
     weight_decay: 0
     warmup: 2000
@@ -44,7 +45,8 @@ data:
   class_path: data.GGWDData
   init_args:
     data_dirs: 
-      - "/scratch/tmp/swein/ggwd/output/longer/data"
+      - "/scratch/tmp/swein/ggwd/output/long/data"
+    length: 131072
     whiten: False
     segment_duration: 4
     max_filter_duration: 4

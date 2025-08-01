@@ -4,6 +4,7 @@ import os
 from pytorch_lightning.callbacks import Callback    
 import torch
 import torch.nn as nn
+from torchmetrics.classification import BinaryConfusionMatrix
 
 
 class Summary(Callback):
@@ -21,7 +22,8 @@ class ConfusionMatrix(Callback):
         y_pred = module.test_predictions
 
         # Confusion matrix
-        mat = module.conf_mat(self.threshold)(y_pred, y)
+        conf_mat = BinaryConfusionMatrix(self.threshold).to(module.device)
+        mat = conf_mat(y_pred, y)
         mat = np.array(mat.cpu().tolist(), dtype=float)
         mat[0] /= np.sum(mat[0])
         mat[1] /= np.sum(mat[1])
@@ -55,7 +57,8 @@ class ROC(Callback):
 
         tpr, fpr = np.empty(self.num_points), np.empty(self.num_points)
         for i, threshold in enumerate(np.linspace(0, 1, self.num_points)):
-            mat = module.conf_mat(threshold)(y_pred, y)
+            conf_mat = BinaryConfusionMatrix(threshold).to(module.device)
+            mat = conf_mat(y_pred, y)
             mat = mat.cpu().numpy()
             mat = mat / np.sum(mat)
             (tn, fp), (fn, tp) = mat

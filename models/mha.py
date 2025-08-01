@@ -40,13 +40,12 @@ class MHAModel(LightningModule):
         )
         self.norm = nn.LayerNorm(self.hparams.embed_dim)
 
+        self.pos_enc = LazyPosEncoding(mode=self.hparams.pos_enc)
+        self.dropout = nn.Dropout(p=self.hparams.dropout)
+
         self.cls_token \
         = nn.Parameter(torch.normal(torch.zeros(self.hparams.embed_dim),
                                     1/math.sqrt(self.hparams.embed_dim)))
-        
-        self.pos_enc = LazyPosEncoding(mode=self.hparams.pos_enc)
-
-        self.dropout = nn.Dropout(p=self.hparams.dropout)
         
         self.transformer \
         = TransformerEncoderModel(embed_dim=self.hparams.embed_dim, 
