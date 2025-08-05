@@ -23,12 +23,12 @@ def main():
     
     log_dir = f"/home/s/swein/gwdet/logs/version_{version}"
     metrics_path = os.path.join(log_dir, "metrics.csv")
-    conv = lambda x: float(x) if x!="" else None
+    conv = lambda x: float(x) if x else None
     epoch, step, train_acc_epoch, train_acc_step, train_loss_epoch, \
     train_loss_step, val_acc, val_loss \
     = np.loadtxt(metrics_path, delimiter=",", skiprows=1, converters=conv, 
-                unpack=True)
-
+                 unpack=True)
+  
     # Learning curve
     fig, ax_epoch = plt.subplots()
     mask = np.isfinite(train_loss_epoch)

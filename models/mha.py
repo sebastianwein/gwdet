@@ -31,14 +31,9 @@ class MHAModel(LightningModule):
 
         self.conv = Conv1dModel(channels=[1, 8, 16, 32, 64], 
                                 kernel_sizes=[15, 9, 7, 5], 
-                                pool_sizes=[2, 2, 2, 2], 
-                                strides=[2, 2, 2, 2])
-        self.embed = nn.Sequential(
-            nn.Dropout(self.hparams.dropout),
-            nn.LazyLinear(self.hparams.embed_dim), 
-            nn.ReLU()
-        )
-        self.norm = nn.LayerNorm(self.hparams.embed_dim)
+                                pool_sizes=[4, 4, 4, 4], 
+                                strides=[1, 1, 1, 1])
+        self.embed = nn.LazyLinear(self.hparams.embed_dim)
 
         self.pos_enc = LazyPosEncoding(mode=self.hparams.pos_enc)
         self.dropout = nn.Dropout(p=self.hparams.dropout)
@@ -57,8 +52,10 @@ class MHAModel(LightningModule):
         self.cls_head = nn.Sequential(
             nn.LazyBatchNorm1d(),
             nn.Linear(self.hparams.embed_dim, self.hparams.ff_dim),
+            nn.Dropout(p=self.hparams.dropout),
             nn.Tanh(),
             nn.Linear(self.hparams.ff_dim, 1),
+            nn.Dropout(p=self.hparams.dropout),
             nn.Sigmoid()
         )
 
@@ -86,7 +83,6 @@ class MHAModel(LightningModule):
         x = x.unflatten(0, (batches, tokens, dets))   # (b, t, dets, c', l')
         x = x.flatten(-3)                             # (b, t, det*c'*l')
         x = self.embed(x)                             # (b, t, embed_dim)    
-        x = self.norm(x)   
 
         x = self.pos_enc(x)
         x = self.dropout(x)

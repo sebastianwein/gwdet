@@ -109,41 +109,44 @@ class LargeDataset(Dataset):
                  dataset_cls: Type[Dataset], 
                  file_paths: list[str], 
                  **kwargs) -> None:
-        # TODO: check all files being compatible
         self.dataset_cls = dataset_cls
         self.kwargs = kwargs
         self.file_paths = file_paths
         self.file_idx = 0
-        self.dataset = self.dataset_cls(self.file_paths[self.file_idx],
-                                        **self.kwargs)
-        # Assumes all files being of the same size as the first file
-        self.file_size = len(self.dataset)
-        self.sample_shape = self.dataset.sample_shape
+        self.datasets = [self.dataset_cls(file_path, **self.kwargs)
+                         for file_path in self.file_paths]
+        self.file_sizes = [len(dataset) for dataset in self.datasets]
+        # Assumes all samples having the same shape as for the first file
+        self.sample_shape = self.datasets[self.file_idx].sample_shape
     
     def __len__(self) -> int:
-        return len(self.file_paths)*self.file_size
+        return sum(self.file_sizes)
     
     def __getitem__(self, idx):
-        file_idx = int(idx/self.file_size)
+        cumsum = np.cumsum(self.file_sizes)
+        file_idx = next(i for i, x in enumerate(cumsum) if x > idx)
         if file_idx != self.file_idx:
             self.file_idx = file_idx
             self.dataset = self.dataset_cls(self.file_paths[self.file_idx], 
                                             **self.kwargs)
-        return self.dataset[idx-self.file_idx*self.file_size]
+        shift = 0 if self.file_idx == 0 else cumsum[self.file_idx-1]
+        return self.datasets[self.file_idx][idx-shift]
 
 
 class LargeDatasetSampler():
     def __init__(self, dataset: LargeDataset, batch_size: int):
         self.num_files = len(dataset.file_paths)
-        self.file_size = dataset.file_size
+        self.file_sizes = dataset.file_sizes
         self.batch_size = batch_size
 
         self.file_idx = 0
         self.batch_idx = 0
-        self.randperm = torch.randperm(self.file_size)
+        self.randperm = torch.randperm(self.file_sizes[self.file_idx])
 
     def __len__(self) -> int:
-        return (self.file_size/self.batch_size).__ceil__() * self.num_files
+        iterations = [(file_size/self.batch_size).__ceil__() 
+                      for file_size in self.file_sizes]
+        return sum(iterations)
     
     def __iter__(self):
         return self
@@ -154,14 +157,14 @@ class LargeDatasetSampler():
         low = self.batch_idx*self.batch_size
         high = (self.batch_idx+1)*self.batch_size
 
-        if high >= self.file_size:
+        if high >= self.file_sizes[self.file_idx]:
             high = None
             self.file_idx += 1
             if self.file_idx >= self.num_files: 
                 self.file_idx = 0
             self.batch_idx = 0
-            self.randperm = torch.randperm(self.file_size) \
-                            + self.file_idx*self.file_size
+            self.randperm = torch.randperm(self.file_sizes[self.file_idx]) \
+                            + self.file_idx*self.file_sizes[self.file_idx]
         else: 
             self.batch_idx += 1
 
@@ -183,7 +186,7 @@ class GGWDData(LightningDataModule):
         val_files = list(set(files[:-1]) - set(train_files))
         self.train_dataset = LargeDataset(GGWDDataset, train_files, **kwargs)
         self.val_dataset = LargeDataset(GGWDDataset, val_files, **kwargs)
-        indices = torch.randperm(self.train_dataset.file_size)[:2048]
+        indices = torch.randperm(self.train_dataset.file_sizes[-1])[:2048]
         self.test_dataset = Subset(GGWDTestDataset(files[-1],**kwargs), indices)
 
         self.batch_size = batch_size

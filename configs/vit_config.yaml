@@ -1,0 +1,57 @@
+seed_everything: 42
+
+trainer:
+  max_epochs: 15
+  logger:
+  - class_path: CSVLogger
+    init_args:
+      save_dir: . 
+      name: "logs"
+
+  callbacks: 
+    - class_path: callbacks.default.Summary
+    - class_path: pytorch_lightning.callbacks.ModelSummary
+      init_args: 
+        max_depth: 3
+
+    - class_path: callbacks.default.ConfusionMatrix
+    - class_path: callbacks.default.ROC
+    - class_path: callbacks.default.SNRAccuracy
+      init_args:
+        snr_range:
+        - 5
+        - 15
+        bins: 10
+
+    - class_path: callbacks.mha.AttentionHeatMap
+    - class_path: callbacks.mha.PositionalEncoding
+
+model:
+  class_path: models.vit.ViTModel
+  init_args:
+    token_length: 256
+    embed_dim: 256
+    pos_enc: static
+    num_heads: 16
+    num_layers: 16
+    ff_dim: 1024
+    dropout: 0.2
+    learning_rate: 0.0005
+    weight_decay: 0.01
+    warmup: 2000
+
+data:
+  class_path: data.GGWDData
+  init_args:
+    data_dirs: 
+      # - /scratch/tmp/swein/ggwd/output/long/bugfix
+      # - /scratch/tmp/swein/ggwd/output/var_merger/data
+      # - /scratch/tmp/swein/ggwd/output/var_merger_whole/data
+      - /scratch/tmp/swein/ggwd/output/longer_less_var/data
+      - /scratch/tmp/swein/ggwd/output/longer/data
+    length: 131072
+    whiten: False
+    segment_duration: 4
+    max_filter_duration: 4
+    batch_size: 64
+    num_workers: 4
